@@ -1,0 +1,10 @@
+# Konfigurasi BigQuery untuk src/preprocessing (dijalankan via `python -m preprocessing`).
+project: thesis-506605
+dataset: tables
+location: US
+
+tables:
+  station_features: station_features   # sumber data mentah
+  preprocessed_data: preprocessed_data # df_train/val/test hasil olahan
+  metadata: preprocessing_metadata     # kolom kalender/stasiun/fitur + column_map
+  scalers: preprocessing_scalers       # MinMaxScaler per stasiun (pickled)

@@ -1,0 +1,29 @@
+# Environments
+.venv/
+venv/
+.python-version
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# uv
+.uv-cache/
+
+# Credentials
+.env
+*service-account*.json
+*credentials*.json
+*-key.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local forecast output (predict.py --csv)
+*.csv

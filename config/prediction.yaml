@@ -1,0 +1,11 @@
+# Konfigurasi BigQuery untuk src/prediction (dijalankan via main.py / src/predict.py).
+project: thesis-506605
+dataset: tables
+location: US
+
+tables:
+  model_selection: model_selection     # hasil pemilihan model terbaik
+  metadata: preprocessing_metadata     # sama dgn yg ditulis preprocessing
+  scalers: preprocessing_scalers       # sama dgn yg ditulis preprocessing
+  forecast_output: forecast_output     # log forecast yang dihasilkan
+  weights_suffix: weights              # {model_name}_{weights_suffix}, mis. lstm_weights
