@@ -19,6 +19,9 @@ here.
 ├── config/
 │   ├── preprocessing.yaml   # BigQuery project/dataset/table names used by src/preprocessing
 │   └── prediction.yaml      # BigQuery project/dataset/table names used by src/prediction
+├── docs/
+│   └── architecture.md      # module-level call flow, pure vs. I/O boundaries
+├── tests/                   # unit tests for pure logic (no BigQuery access)
 └── src/
     ├── settings.py          # loads a module's YAML from config/
     ├── preprocessing/       # one-time setup: raw data -> train/val/test, scalers, metadata
@@ -87,6 +90,12 @@ project/dataset — the current one is already populated):
 cd src && uv run python -m preprocessing
 ```
 
+Run the test suite (unit tests only, no BigQuery access needed):
+
+```
+uv run pytest
+```
+
 ## How it fits together
 
 1. `preprocessing` (one-time) reads raw `station_features`, fills NaNs with
@@ -101,3 +110,6 @@ cd src && uv run python -m preprocessing
    weights, pulls the latest raw data, reapplies the same
    preprocessing/scaling, runs inference, and inverse-transforms the result
    back to cm.
+
+See [docs/architecture.md](docs/architecture.md) for the module-level call
+flow behind each step.
