@@ -27,3 +27,7 @@ Thumbs.db
 
 # Local forecast output (predict.py --csv)
 *.csv
+
+# Local raw_preprocessing output
+artifacts/
+*.parquet

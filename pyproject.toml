@@ -11,6 +11,8 @@ dependencies = [
     "prophet>=1.1",
     "pyyaml>=6.0",
     "google-cloud-bigquery[pandas]>=3.11",
+    "requests>=2.31",
+    "holidays>=0.40",
 ]
 
 [dependency-groups]

@@ -2,7 +2,7 @@
 
 from google.cloud import bigquery
 
-from .config import LOCATION, PROJECT_ID, STATION_FEATURES_TABLE, WRITE_DISPOSITION
+from .config import LOCATION, PROJECT_ID, WRITE_DISPOSITION
 
 
 def authenticate():
@@ -18,10 +18,10 @@ def get_client():
     return bigquery.Client(project=PROJECT_ID, location=LOCATION)
 
 
-def load_station_features(client):
+def load_station_features(client, table_id):
     query = f"""
         SELECT *
-        FROM `{STATION_FEATURES_TABLE}`
+        FROM `{table_id}`
         ORDER BY datetime
     """
     df_fe = client.query(query).to_dataframe()

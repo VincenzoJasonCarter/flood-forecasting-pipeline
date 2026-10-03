@@ -3,17 +3,20 @@
 import pandas as pd
 
 from .bigquery_io import authenticate, get_client, load_station_features
+from .config import GRANULARITIES, GRANULARITY, table_id
 from .imputation import compute_hourly_medians, fill_nan_hourly_median
 from .scaling import apply_scalers, fit_scalers, to_bq_column
 from .splitting import get_station_cols, split_data
 from .storage import save_metadata, save_preprocessed_data, save_scalers
 
 
-def run():
+def run(granularity=GRANULARITY):
+    if granularity not in GRANULARITIES:
+        raise ValueError(f"granularity harus salah satu dari {GRANULARITIES}, bukan {granularity!r}")
     authenticate()
     client = get_client()
 
-    df_fe = load_station_features(client)
+    df_fe = load_station_features(client, table_id("station_features", granularity))
     station_cols = get_station_cols(df_fe)
     print(f"Loaded: {df_fe.shape} | {df_fe.index[0].date()} → {df_fe.index[-1].date()}")
     print(f"Stations : {station_cols}")
@@ -25,6 +28,7 @@ def run():
     print(f"Val   : {df_val_raw.index[0].date()} → {df_val_raw.index[-1].date()} ({len(df_val_raw):,} rows, {len(df_val_raw)/n:.1%})")
     print(f"Test  : {df_test_raw.index[0].date()} → {df_test_raw.index[-1].date()} ({len(df_test_raw):,} rows, {len(df_test_raw)/n:.1%})")
 
+    # Untuk data daily index.hour selalu 0, jadi ini jadi median keseluruhan per stasiun.
     hourly_medians = compute_hourly_medians(df_train_raw, station_cols)
     print("Hourly medians per stasiun (cm):")
     for station, med in hourly_medians.items():
@@ -52,10 +56,11 @@ def run():
     # disimpan di preprocessing_metadata agar notebook model bisa memetakan
     # baliknya.
     column_map = {station: to_bq_column(station) for station in station_cols}
-    save_preprocessed_data(client, df_train, df_val, df_test, column_map)
+    save_preprocessed_data(client, df_train, df_val, df_test, column_map,
+                           table_id("preprocessed_data", granularity))
 
     saved_at = pd.Timestamp.now(tz="UTC").tz_localize(None)
-    save_metadata(client, station_cols, column_map, saved_at)
-    save_scalers(client, scalers, saved_at)
+    save_metadata(client, station_cols, column_map, saved_at, table_id("metadata", granularity))
+    save_scalers(client, scalers, saved_at, table_id("scalers", granularity))
 
-    print("Saved: preprocessed_data, preprocessing_metadata, preprocessing_scalers -> BigQuery")
+    print(f"Saved ({granularity}): preprocessed_data, metadata, scalers -> BigQuery")

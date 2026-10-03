@@ -3,8 +3,18 @@ project: thesis-506605
 dataset: tables
 location: US
 
+# Granularity data yang di-preprocess: hourly | daily. Menentukan set tabel
+# di bawah. Bisa di-override per run: `make preprocess ARGS="--granularity hourly"`.
+granularity: daily
+
 tables:
-  station_features: station_features   # sumber data mentah
-  preprocessed_data: preprocessed_data # df_train/val/test hasil olahan
-  metadata: preprocessing_metadata     # kolom kalender/stasiun/fitur + column_map
-  scalers: preprocessing_scalers       # MinMaxScaler per stasiun (pickled)
+  hourly:
+    station_features: station_features_hourly          # input, hasil src/raw_preprocessing
+    preprocessed_data: preprocessed_data_hourly        # df_train/val/test hasil olahan
+    metadata: preprocessing_metadata_hourly            # kolom kalender/stasiun/fitur + column_map
+    scalers: preprocessing_scalers_hourly              # MinMaxScaler per stasiun (pickled)
+  daily:
+    station_features: station_features_daily
+    preprocessed_data: preprocessed_data_daily
+    metadata: preprocessing_metadata_daily
+    scalers: preprocessing_scalers_daily

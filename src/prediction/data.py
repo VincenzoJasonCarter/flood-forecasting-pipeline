@@ -7,7 +7,7 @@ from preprocessing.imputation import compute_hourly_medians, fill_nan_hourly_med
 from preprocessing.scaling import apply_scalers
 from preprocessing.splitting import split_data
 
-from .config import LOOKBACK, METADATA_TABLE
+from .config import LOOKBACK, METADATA_TABLE, STATION_FEATURES_TABLE
 from .scalers import load_scalers
 
 
@@ -36,7 +36,7 @@ def load_recent_scaled(client, lookback=LOOKBACK):
     feature_cols = metadata["feature_cols"]
     station_cols = metadata["station_cols"]
 
-    df_fe = load_station_features(client)
+    df_fe = load_station_features(client, STATION_FEATURES_TABLE)
     df_train_raw, _, _ = split_data(df_fe)
     hourly_medians = compute_hourly_medians(df_train_raw, station_cols)
 

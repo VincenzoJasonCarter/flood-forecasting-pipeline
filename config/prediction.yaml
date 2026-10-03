@@ -3,9 +3,13 @@ project: thesis-506605
 dataset: tables
 location: US
 
+# Tabel input harus satu granularity dengan model yang sedang dipakai. Model
+# saat ini dilatih dengan data per jam dari tabel-tabel lama (tanpa suffix);
+# ganti ke *_daily / *_hourly setelah model untuk granularity itu siap.
 tables:
   model_selection: model_selection     # hasil pemilihan model terbaik
-  metadata: preprocessing_metadata     # sama dgn yg ditulis preprocessing
-  scalers: preprocessing_scalers       # sama dgn yg ditulis preprocessing
+  station_features: station_features   # data terbaru untuk input model
+  metadata: preprocessing_metadata     # hasil preprocessing untuk data training model
+  scalers: preprocessing_scalers       # hasil preprocessing untuk data training model
   forecast_output: forecast_output     # log forecast yang dihasilkan
   weights_suffix: weights              # {model_name}_{weights_suffix}, mis. lstm_weights

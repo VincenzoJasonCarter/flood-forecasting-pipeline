@@ -17,6 +17,7 @@ LOOKBACK = 72
 
 _tables = _config["tables"]
 MODEL_SELECTION_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['model_selection']}"
+STATION_FEATURES_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['station_features']}"
 METADATA_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['metadata']}"
 SCALERS_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['scalers']}"
 FORECAST_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['forecast_output']}"
