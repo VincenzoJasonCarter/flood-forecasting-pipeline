@@ -3,13 +3,18 @@ project: thesis-506605
 dataset: tables
 location: US
 
-# Tabel input harus satu granularity dengan model yang sedang dipakai. Model
-# saat ini dilatih dengan data per jam dari tabel-tabel lama (tanpa suffix);
-# ganti ke *_daily / *_hourly setelah model untuk granularity itu siap.
+# Granularity model yang sedang dipakai: hourly | daily. Menentukan LOOKBACK,
+# HORIZONS, dan satuan horizon (jam/hari) di src/prediction/config.py.
+granularity: hourly
+
+# Tabel harus satu granularity dengan `granularity` di atas. Model hourly lama
+# ada di tabel tanpa suffix (station_features, preprocessing_metadata,
+# preprocessing_scalers, model_selection, forecast_output, {model}_weights).
 tables:
-  model_selection: model_selection     # hasil pemilihan model terbaik
-  station_features: station_features   # data terbaru untuk input model
-  metadata: preprocessing_metadata     # hasil preprocessing untuk data training model
-  scalers: preprocessing_scalers       # hasil preprocessing untuk data training model
-  forecast_output: forecast_output     # log forecast yang dihasilkan
-  weights_suffix: weights              # {model_name}_{weights_suffix}, mis. lstm_weights
+  model_selection: model_selection_hourly         # hasil pemilihan model terbaik (05_Model_Selection)
+  station_features: station_features_hourly       # data terbaru untuk input model
+  metadata: preprocessing_metadata_hourly         # hasil preprocessing untuk data training model
+  scalers: preprocessing_scalers_hourly           # hasil preprocessing untuk data training model
+  forecast_output: forecast_output_hourly         # log forecast yang dihasilkan
+  weights_suffix: weights_hourly                  # {model_name}_{weights_suffix}, mis. lstm_weights_hourly
+  rainfall: rainfall_hourly                       # hujan per sel (src/rainfall), untuk fitur hujan

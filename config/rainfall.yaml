@@ -1,0 +1,46 @@
+# Konfigurasi untuk src/rainfall (dijalankan via `python -m rainfall`).
+project: thesis-506605
+dataset: tables
+location: US
+
+api:
+  # Historical Forecast API: arsip run model, tersedia sejak 2021 dan terus
+  # di-update s/d jam terbaru, jadi bisa dipakai untuk training dan serving.
+  url: https://historical-forecast-api.open-meteo.com/v1/forecast
+  model: ecmwf_ifs          # ECMWF IFS ~9 km
+  variable: precipitation   # mm, jumlah hujan selama 1 jam SEBELUM timestamp
+  timezone: Asia/Jakarta    # jam lokal (WIB) tanpa tz, sama dengan jam TMA
+  start_date: "2021-01-16"  # samakan dengan api.start_date di raw_preprocessing.yaml
+
+grid:
+  # Kotak yang mencakup hulu semua stasiun (Puncak/Bogor -> Jakarta). Titik
+  # uji disebar tiap `probe_step` derajat; titik yang jatuh di sel grid model
+  # yang sama digabung, jadi koordinat tidak perlu presisi.
+  lat_min: -6.85
+  lat_max: -6.10
+  lon_min: 106.60
+  lon_max: 107.05
+  probe_step: 0.03
+
+fetch:
+  cells_per_request: 10
+  days_per_request: 366
+  overlap_days: 2           # mode incremental: hari terakhir yang diambil ulang
+  # Kuota API gratis dihitung berbobot: bobot 1 request ~ jumlah lokasi x
+  # max(1, jumlah hari / 14). Batas resmi 600/menit, 5.000/jam, 10.000/hari;
+  # anggaran di bawah ini sengaja sedikit di bawahnya. Batas harian tidak
+  # ditunggu: kalau habis, data yang sudah lengkap disimpan.
+  minute_budget: 500
+  hour_budget: 4500
+
+survey:
+  # Tahap 1 (`--survey`): semua sel, tapi hanya satu musim hujan di periode
+  # train -> cukup untuk ranking sel (`rainfall.analysis`) dengan kuota kecil.
+  # Tahap 2: histori penuh hanya untuk sel terpilih (`--select-top N`).
+  start: "2023-11-01"
+  end: "2024-04-30"
+  output: rainfall_survey          # artifacts/rainfall_survey.parquet (dibaca rainfall.analysis)
+  table: rainfall_survey_hourly    # salinan mentahnya di BigQuery (--write-bq), terpisah dari rainfall_hourly
+
+tables:
+  rainfall: rainfall_hourly # juga nama parquet lokal: artifacts/rainfall_hourly.parquet

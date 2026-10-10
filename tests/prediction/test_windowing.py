@@ -27,7 +27,7 @@ def test_prophet_frame_selects_last_row_with_ds_and_regressors():
         {"target": [0.1, 0.2, 0.3], "other": [0.4, 0.5, 0.6]}, index=index
     )
 
-    out = prophet_frame(df, target_station="target", other_stations=["other"])
+    out = prophet_frame(df, target_station="target", regressors=["other"])
 
     assert len(out) == 1
     assert list(out.columns) == ["ds", "y", "other"]

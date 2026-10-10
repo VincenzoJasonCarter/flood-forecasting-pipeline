@@ -2,10 +2,12 @@
 
 Pemakaian (dari src/):
     python -m raw_preprocessing
-    python -m raw_preprocessing --granularity hourly
+    python -m raw_preprocessing --granularity daily
     python -m raw_preprocessing --start 2021-01-16 --end 2026-08-25
     python -m raw_preprocessing --output ../artifacts/df_fe.parquet
     python -m raw_preprocessing --write-bq
+    python -m raw_preprocessing --incremental
+    python -m raw_preprocessing --incremental --write-bq   # lanjut dari MAX(datetime) BigQuery
 """
 
 import argparse
@@ -25,10 +27,14 @@ def main():
                         help="Path parquet output (default: artifacts/{tabel granularity}.parquet).")
     parser.add_argument("--write-bq", action="store_true",
                         help="Juga TIMPA tabel station_features_{granularity} di BigQuery (WRITE_TRUNCATE).")
+    parser.add_argument("--incremental", action="store_true",
+                        help="Crawl hanya dari beberapa hari sebelum tanggal terakhir di output lama "
+                             "(--start diabaikan kalau output sudah ada), ganti hari-hari overlap dengan hasil "
+                             "baru, lalu gabungkan. Bersama --write-bq: output lama dibaca dari tabel BigQuery.")
     args = parser.parse_args()
 
     run(start=args.start, end=args.end, granularity=args.granularity,
-        output_path=args.output, write_bq=args.write_bq)
+        output_path=args.output, write_bq=args.write_bq, incremental=args.incremental)
 
 
 if __name__ == "__main__":

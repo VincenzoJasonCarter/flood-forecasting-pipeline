@@ -2,7 +2,7 @@
 
 Pemakaian (dari src/):
     python -m preprocessing
-    python -m preprocessing --granularity hourly
+    python -m preprocessing --granularity daily
 """
 
 import argparse

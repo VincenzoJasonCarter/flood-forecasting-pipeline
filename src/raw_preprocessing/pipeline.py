@@ -1,14 +1,16 @@
 """Full raw preprocessing pipeline, chaining every step of the package together."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
 from .config import (
+    CALENDAR_COLS,
     CLEAN_ISOLATED_SPIKES,
     GAP_LIMIT,
     GRANULARITIES,
     GRANULARITY,
+    INCREMENTAL_OVERLAP_DAYS,
     START_DATE,
     default_output_path,
     station_features_table,
@@ -19,10 +21,61 @@ from .gaps import fill_gaps, gap_lengths
 from .outliers import OUTLIER_COLS, clean_isolated_spikes, flag_outliers
 from .parsing import flatten_records
 from .resampling import resample_hourly, to_daily_max, to_wide
-from .storage import get_client, save_parquet, save_station_features
+from .storage import get_client, load_existing_features, save_parquet, save_station_features
 
 
-def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, write_bq=False):
+def _resume_start(output_path, overlap_days):
+    """Return (existing_df, start) untuk crawl incremental.
+
+    Kalau output belum ada, existing_df None dan start None (caller jatuh
+    ke full crawl)."""
+    if not output_path.exists():
+        return None, None
+    existing = pd.read_parquet(output_path)
+    if existing.empty:
+        return None, None
+    start = existing.index.max().date() - timedelta(days=overlap_days)
+    return existing, start.isoformat()
+
+
+def _bq_resume(client, table_id, overlap_days):
+    """Seperti _resume_start, tapi titik lanjut diambil dari MAX(datetime) tabel BigQuery."""
+    existing = load_existing_features(client, table_id)
+    if existing is None:
+        return None, None
+    start = existing.index.max().date() - timedelta(days=overlap_days)
+    return existing, start.isoformat()
+
+
+def _merge_incremental(existing, new, start):
+    """Gabungkan output lama dengan hasil crawl baru.
+
+    Hari pertama window (`start`) hanya konteks interpolasi, jadi barisnya
+    tetap dari `existing`; SEMUA baris sejak `start` + 1 hari diganti hasil
+    baru — termasuk jam-jam terakhir output lama yang mungkin masih NaN (laporan
+    telat), hasil ffill, atau rata-rata dari laporan yang belum lengkap.
+    Kolom mengikuti `existing` supaya skema tabel tidak berubah."""
+    cut = pd.Timestamp(start) + timedelta(days=1)
+    extra = [c for c in new.columns if c not in existing.columns]
+    if extra:
+        print(f"Peringatan: kolom tidak ada di output lama, dilewati: {extra}")
+    new = new.reindex(columns=existing.columns)
+    merged = pd.concat([existing[existing.index < cut], new[new.index >= cut]])
+    stations = [c for c in merged.columns if c not in CALENDAR_COLS]
+    return merged[stations + CALENDAR_COLS]
+
+
+def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, write_bq=False,
+        incremental=False, overlap_days=INCREMENTAL_OVERLAP_DAYS):
+    """Jalankan pipeline.
+
+    incremental=True: crawl hanya dari `overlap_days` hari sebelum tanggal
+    terakhir di `output_path`, lalu gabungkan dengan output lama. Kalau output
+    belum ada, jatuh ke full crawl dari `start`.
+
+    incremental=True + write_bq=True: sama, tapi output lama dibaca dari tabel
+    BigQuery (sumber kebenaran, titik lanjut = MAX(datetime)). Hasil gabungan
+    menimpa tabel (WRITE_TRUNCATE, atomik) dan parquet lokal."""
     # Validasi sebelum crawl, supaya typo tidak baru ketahuan setelah crawl panjang.
     if granularity not in GRANULARITIES:
         raise ValueError(f"granularity harus salah satu dari {GRANULARITIES}, bukan {granularity!r}")
@@ -31,11 +84,29 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
     table_id = station_features_table(granularity)
     token = get_token()
 
+    existing = None
+    client = get_client() if write_bq else None
+    if incremental:
+        if write_bq:
+            existing, resume = _bq_resume(client, table_id, overlap_days)
+            source = table_id
+        else:
+            existing, resume = _resume_start(output_path, overlap_days)
+            source = output_path
+        if existing is None:
+            print(f"Incremental: {source} belum ada, full crawl dari {start}")
+        else:
+            start = resume
+            print(f"Incremental: output lama s/d {existing.index.max()}, crawl ulang dari {start}")
+
     raw, failed = crawl_range(start, end, token)
     print(f"rows: {len(raw):,}, failed days: {len(failed)}")
     if failed:
         print(f"  failed: {failed}")
     if not raw:
+        if existing is not None:
+            print("Incremental: tidak ada data baru, output tidak diubah.")
+            return existing
         raise RuntimeError(f"API tidak mengembalikan data untuk {start} -> {end}.")
 
     df = flatten_records(raw)
@@ -77,9 +148,17 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
     df_fe = add_calendar_features(df_out)
     print(f"\n{granularity} station features: {df_fe.shape} | holiday rows: {df_fe['is_holiday'].sum():,}")
 
+    if existing is not None:
+        n_before = len(existing)
+        df_fe = _merge_incremental(existing, df_fe, start)
+        print(f"Merged with existing output: {df_fe.shape} (+{len(df_fe) - n_before:,} rows) "
+              f"| {df_fe.index[0]} -> {df_fe.index[-1]}")
+
     save_parquet(df_fe, output_path)
     if write_bq:
-        save_station_features(get_client(), df_fe, table_id)
+        # Seluruh tabel ditimpa (bukan APPEND) supaya jam-jam overlap ikut
+        # terkoreksi. WRITE_TRUNCATE atomik dan tidak butuh DML.
+        save_station_features(client, df_fe, table_id)
         print(f"Saved: {table_id} -> BigQuery")
 
     return df_fe

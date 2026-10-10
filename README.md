@@ -18,6 +18,7 @@ here.
 ├── pyproject.toml / uv.lock # dependencies
 ├── config/
 │   ├── raw_preprocessing.yaml # API endpoint + BigQuery table names used by src/raw_preprocessing
+│   ├── rainfall.yaml        # Open-Meteo model, grid bounding box + table name used by src/rainfall
 │   ├── preprocessing.yaml   # BigQuery project/dataset/table names used by src/preprocessing
 │   └── prediction.yaml      # BigQuery project/dataset/table names used by src/prediction
 ├── docs/
@@ -26,6 +27,7 @@ here.
 └── src/
     ├── settings.py          # loads a module's YAML from config/
     ├── raw_preprocessing/   # API crawl -> station_features_{hourly,daily} (water level + calendar features)
+    ├── rainfall/            # Open-Meteo -> rainfall_hourly (rain per grid cell) + per-station cell ranking
     ├── preprocessing/       # one-time setup: station_features -> train/val/test, scalers, metadata
     ├── prediction/          # forecast pipeline: best model + latest data -> forecast (cm)
     ├── load_best_model.py   # CLI: inspect/load the current best model's weights
@@ -88,16 +90,39 @@ uv run python src/load_best_model.py --station "Bendung Katulampa" --horizon 3
 Build `station_features_hourly` or `station_features_daily` from the
 sisteminformasibanjir API (crawls one request per day, so a full history
 takes a while). `granularity` in `config/raw_preprocessing.yaml` picks the
-default (`daily` = daily max per station, `hourly` = the hourly grid);
+default (`hourly` = the hourly grid, `daily` = daily max per station);
 `--granularity` overrides it per run. The API token is read
 from the `SIBANJIR_TOKEN` env var — put it in `.env` (copy `.env.example`)
 and the Makefile passes it through:
 
 ```
-make raw-preprocess                               # -> artifacts/station_features_daily.parquet
-make raw-preprocess ARGS="--granularity hourly"   # -> artifacts/station_features_hourly.parquet
+make raw-preprocess                               # -> artifacts/station_features_hourly.parquet
+make raw-preprocess ARGS="--granularity daily"    # -> artifacts/station_features_daily.parquet
 make raw-preprocess ARGS="--end 2026-08-25"
 make raw-preprocess-bq                            # also writes tables.station_features_<granularity> (WRITE_TRUNCATE)
+```
+
+Hourly rainfall comes from Open-Meteo's Historical Forecast API (ECMWF IFS,
+~9 km grid, no API key). Instead of exact station coordinates, every model
+grid cell inside the upstream bounding box in `config/rainfall.yaml` is
+fetched (one `rain_<lat>_<lon>` column per cell); hours that haven't happened
+yet are dropped, since the API also returns forecasts.
+
+The free API quota is weighted (locations × 2-week blocks; 600/min,
+5,000/h, 10,000/day), so requests are throttled automatically, and the full
+history of all ~81 cells (~12k) wouldn't fit in a day. Hence three steps:
+survey every cell over one wet season inside the train period, rank cells
+per station by lagged correlation between rain and water-level rise (train
+period only, writes `artifacts/rainfall_cell_ranking.csv`), then fetch the
+full history only for the top `TOP` cells per station (~15 min in total). If
+the quota still runs out, or on Ctrl+C, completed chunks are saved —
+continue with `rainfall-incremental`.
+
+```
+make rainfall-survey         # 1. all cells, survey season -> artifacts/rainfall_survey.parquet
+make rainfall-rank           # 2. needs artifacts/station_features_hourly.parquet too
+make rainfall-bq TOP=3       # 3. full history, top 3 cells per station -> tables.rainfall_hourly
+make rainfall-incremental    # routine: re-fetch last days, merge, rewrite table
 ```
 
 Then preprocess that table for modelling. `granularity` in
@@ -107,14 +132,29 @@ Then preprocess that table for modelling. `granularity` in
 
 ```
 make preprocess                                   # uses granularity from config
-make preprocess ARGS="--granularity hourly"
+make preprocess ARGS="--granularity daily"
 ```
 
+With `rainfall.enabled` (hourly only), `make preprocess` also needs
+`tables.rainfall_hourly` and `artifacts/rainfall_cell_ranking.csv`, so run the
+rainfall steps above first. This is the only preprocessing path — notebook
+`00_Preprocessing` now just inspects the result.
+
 None of these touch the unsuffixed tables (`station_features`,
-`preprocessing_metadata`, `preprocessing_scalers`) that `prediction` reads for
-the currently deployed models — point `config/prediction.yaml` at the
-`_hourly`/`_daily` tables once a model for that granularity is trained. Run
-`make help` for every target.
+`preprocessing_metadata`, `preprocessing_scalers`) that hold the older hourly
+models. `config/prediction.yaml` sets the `granularity` that `prediction`
+serves (currently `hourly`) and the matching table set; `LOOKBACK`/`HORIZONS`
+for each granularity live in `src/prediction/config.py`. Run `make help` for
+every target.
+
+### Scheduled updates (GitHub Actions)
+
+`.github/workflows/crawl.yml` runs every hour (and on demand from the Actions
+tab): `raw-preprocess-incremental`, `rainfall-incremental`, and — once the
+repository variable `RUN_PREDICT` is `true` — `predict --write-bq`. It needs
+the repository secrets `SIBANJIR_TOKEN` and `GCP_SA_KEY` (a service-account
+JSON key with BigQuery Data Editor + BigQuery Job User), runs only from the
+default branch, and assumes the initial backfills already exist in BigQuery.
 
 Run the test suite (unit tests only, no BigQuery access needed):
 
@@ -130,20 +170,29 @@ uv run pytest
    the daily maximum per station (`granularity`), adds calendar features,
    and writes `station_features_hourly` / `station_features_daily`. Outlier flags are computed for reporting;
    spike removal is off by default to match the data models were trained on.
-1. `preprocessing` reads `station_features_<granularity>`, fills NaNs with
-   per-station hourly medians (an overall median for daily data), scales each
-   station with its own `MinMaxScaler`, and writes
-   `preprocessed_data_<granularity>`, `preprocessing_metadata_<granularity>`,
-   and `preprocessing_scalers_<granularity>` to BigQuery.
-2. Training (external to this repo) fits Prophet/LSTM/GRU/TFT on that data
-   and writes bobot (weights) to `{model}_weights` plus validation/test
-   metrics, and a model-selection step writes the winner to
-   `model_selection`.
-3. `prediction` reads `model_selection` to pick the winning model, loads its
+1. `rainfall` fetches hourly rain per model grid cell from Open-Meteo into
+   `rainfall_hourly` and ranks cells per station (see above).
+2. `preprocessing` reads `station_features_<granularity>`, fills NaNs with
+   per-station hourly medians from the train split (an overall median for
+   daily data), scales each station with its own `MinMaxScaler`, encodes
+   hour/month/day-of-week as sin/cos, and — hourly only — adds per-station
+   catchment rain features: the mean of the station's top cells, summed over
+   the last 1/3/6/12/24 h (log1p + `MinMaxScaler`). It writes
+   `preprocessed_data_<granularity>`, `preprocessing_metadata_<granularity>`
+   (feature columns per station, rain cells, fill medians) and
+   `preprocessing_scalers_<granularity>` to BigQuery.
+3. Training (notebooks 01–04, Colab) fits Prophet/LSTM/GRU/TFT per station on
+   that data — every station + calendar, plus the target station's rain
+   features — and writes weights to `{model}_weights_<g>` plus
+   validation/test metrics; `USE_RAINFALL = False` trains the no-rain
+   ablation as `{model}_norain`. Notebook 05 writes the winner to
+   `model_selection_<g>`.
+4. `prediction` reads `model_selection` to pick the winning model, loads its
    weights, pulls the latest data from the tables in `config/prediction.yaml`
-   (currently the unsuffixed hourly ones), reapplies the same
-   preprocessing/scaling, runs inference, and inverse-transforms the result
-   back to cm.
+   (currently the `_hourly` ones, including `rainfall_hourly`), rebuilds the
+   features with the same `preprocessing` functions and the stored
+   medians/scalers, runs inference, and inverse-transforms the result back
+   to cm.
 
 See [docs/architecture.md](docs/architecture.md) for the module-level call
 flow behind each step.

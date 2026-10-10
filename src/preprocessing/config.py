@@ -4,7 +4,7 @@ Project/dataset/table paths datang dari config/preprocessing.yaml. Setiap
 granularity (hourly/daily) punya set tabel input/output sendiri.
 """
 
-from settings import load_config
+from settings import CONFIG_DIR, load_config
 
 _config = load_config("preprocessing")
 
@@ -32,3 +32,11 @@ def table_id(name, granularity=GRANULARITY):
     """Path BigQuery lengkap untuk tabel `name` (station_features,
     preprocessed_data, metadata, scalers) pada granularity tertentu."""
     return f"{PROJECT_ID}.{DATASET}.{_tables[granularity][name]}"
+
+
+_rain = _config["rainfall"]
+RAIN_ENABLED = bool(_rain["enabled"])
+RAIN_TABLE = f"{PROJECT_ID}.{DATASET}.{_rain['table']}"
+RAIN_RANKING_PATH = CONFIG_DIR.parent / _rain["ranking"]
+RAIN_TOP_CELLS = int(_rain["top_cells"])
+RAIN_ACCUM_HOURS = [int(h) for h in _rain["accum_hours"]]
