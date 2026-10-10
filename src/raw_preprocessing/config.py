@@ -28,6 +28,11 @@ START_DATE = str(_api["start_date"])
 # Di output daily `hour` selalu 0, tapi tetap ada supaya skema kolomnya sama.
 CALENDAR_COLS = ["hour", "month", "day_of_week", "is_weekend", "is_holiday", "is_rainy_season"]
 
+# Mode incremental meng-crawl ulang N hari terakhir yang sudah ada di output:
+# hari terakhir biasanya belum lengkap, dan hari pertama window hanya dipakai
+# sebagai konteks interpolasi (barisnya tetap dari output lama).
+INCREMENTAL_OVERLAP_DAYS = 3
+
 RESAMPLE_FREQ = "h"  # grid pembersihan (outlier, pengisian gap)
 DAILY_FREQ = "D"     # grid output granularity daily: max harian dari grid per jam
 GAP_LIMIT = 6  # jam; batas NaN berturut-turut per langkah pengisian gap

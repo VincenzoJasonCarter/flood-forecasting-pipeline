@@ -6,6 +6,8 @@ Pemakaian (dari src/):
     python -m raw_preprocessing --start 2021-01-16 --end 2026-08-25
     python -m raw_preprocessing --output ../artifacts/df_fe.parquet
     python -m raw_preprocessing --write-bq
+    python -m raw_preprocessing --incremental
+    python -m raw_preprocessing --incremental --write-bq   # lanjut dari MAX(datetime) BigQuery, APPEND
 """
 
 import argparse
@@ -24,11 +26,16 @@ def main():
     parser.add_argument("--output", type=Path, default=None,
                         help="Path parquet output (default: artifacts/{tabel granularity}.parquet).")
     parser.add_argument("--write-bq", action="store_true",
-                        help="Juga TIMPA tabel station_features_{granularity} di BigQuery (WRITE_TRUNCATE).")
+                        help="Tulis ke tabel station_features_{granularity} di BigQuery: TIMPA (WRITE_TRUNCATE), "
+                             "atau APPEND kalau dipakai bersama --incremental.")
+    parser.add_argument("--incremental", action="store_true",
+                        help="Crawl hanya dari beberapa hari sebelum tanggal terakhir di output lama "
+                             "(--start diabaikan kalau output sudah ada), lalu gabungkan. Bersama --write-bq: "
+                             "titik lanjut = MAX(datetime) tabel BigQuery dan baris baru di-APPEND.")
     args = parser.parse_args()
 
     run(start=args.start, end=args.end, granularity=args.granularity,
-        output_path=args.output, write_bq=args.write_bq)
+        output_path=args.output, write_bq=args.write_bq, incremental=args.incremental)
 
 
 if __name__ == "__main__":
