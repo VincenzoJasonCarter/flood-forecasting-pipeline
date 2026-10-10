@@ -2,12 +2,28 @@
 
 import pandas as pd
 
-from .bigquery_io import authenticate, get_client, load_station_features
-from .config import GRANULARITIES, GRANULARITY, table_id
+from .bigquery_io import authenticate, get_client, load_rainfall_cells, load_station_features
+from .config import (GRANULARITIES, GRANULARITY, RAIN_ACCUM_HOURS, RAIN_ENABLED, RAIN_RANKING_PATH, RAIN_TABLE,
+                     RAIN_TOP_CELLS, table_id)
+from .features import apply_rain_scalers, encode_calendar, fit_rain_scalers, rain_features, top_cells_by_station
 from .imputation import compute_hourly_medians, fill_nan_hourly_median
+from .metadata import build_metadata
 from .scaling import apply_scalers, fit_scalers, to_bq_column
 from .splitting import get_station_cols, split_data
 from .storage import save_metadata, save_preprocessed_data, save_scalers
+
+
+def _rain_cells(station_cols):
+    """Sel hujan per stasiun dari file ranking (hasil `make rainfall-rank`)."""
+    if not RAIN_RANKING_PATH.exists():
+        raise FileNotFoundError(
+            f"{RAIN_RANKING_PATH} belum ada. Jalankan `make rainfall-survey` lalu `make rainfall-rank`, "
+            f"atau set rainfall.enabled: false di config/preprocessing.yaml.")
+    cells = top_cells_by_station(pd.read_csv(RAIN_RANKING_PATH), RAIN_TOP_CELLS)
+    skipped = [s for s in station_cols if s not in cells]
+    if skipped:
+        print(f"Peringatan: tidak ada ranking hujan untuk {skipped}; stasiun ini tanpa fitur hujan.")
+    return {s: cells[s] for s in station_cols if s in cells}
 
 
 def run(granularity=GRANULARITY):
@@ -44,9 +60,9 @@ def run(granularity=GRANULARITY):
 
     scalers = fit_scalers(df_train_raw, station_cols)
 
-    df_train = apply_scalers(df_train_raw, scalers, station_cols)
-    df_val = apply_scalers(df_val_raw, scalers, station_cols)
-    df_test = apply_scalers(df_test_raw, scalers, station_cols)
+    df_train = encode_calendar(apply_scalers(df_train_raw, scalers, station_cols))
+    df_val = encode_calendar(apply_scalers(df_val_raw, scalers, station_cols))
+    df_test = encode_calendar(apply_scalers(df_test_raw, scalers, station_cols))
     print(f"Train range: {df_train[station_cols].min().min():.4f} – {df_train[station_cols].max().max():.4f}")
     print(f"Val   range: {df_val[station_cols].min().min():.4f} – {df_val[station_cols].max().max():.4f}")
     print(f"Test  range: {df_test[station_cols].min().min():.4f} – {df_test[station_cols].max().max():.4f}")
@@ -56,11 +72,33 @@ def run(granularity=GRANULARITY):
     # disimpan di preprocessing_metadata agar notebook model bisa memetakan
     # baliknya.
     column_map = {station: to_bq_column(station) for station in station_cols}
+
+    rain_cells, rain_cols = {}, {}
+    if RAIN_ENABLED and granularity != "hourly":
+        print("Fitur hujan hanya untuk granularity hourly; dilewati.")
+    elif RAIN_ENABLED:
+        rain_cells = _rain_cells(station_cols)
+        all_cells = sorted({c for cells in rain_cells.values() for c in cells})
+        rain = load_rainfall_cells(client, RAIN_TABLE, all_cells)
+        print(f"\nHujan: {len(all_cells)} sel dari {RAIN_TABLE} | {rain.index[0]} → {rain.index[-1]}")
+        # Dihitung di seluruh histori sekaligus, supaya jendela akumulasi di
+        # awal val/test tetap memakai jam-jam terakhir periode sebelumnya.
+        features, rain_cols = rain_features(rain, rain_cells, RAIN_ACCUM_HOURS, column_map, df_fe.index)
+        all_rain_cols = [c for cols in rain_cols.values() for c in cols]
+        rain_scalers = fit_rain_scalers(features.loc[df_train.index], all_rain_cols)
+        features = apply_rain_scalers(features, rain_scalers, all_rain_cols)
+        df_train, df_val, df_test = (d.join(features) for d in (df_train, df_val, df_test))
+        scalers.update(rain_scalers)
+        for station, cols in rain_cols.items():
+            print(f"  {station}: {len(rain_cells[station])} sel -> {cols}")
+
     save_preprocessed_data(client, df_train, df_val, df_test, column_map,
                            table_id("preprocessed_data", granularity))
 
     saved_at = pd.Timestamp.now(tz="UTC").tz_localize(None)
-    save_metadata(client, station_cols, column_map, saved_at, table_id("metadata", granularity))
+    metadata = build_metadata(station_cols, column_map, hourly_medians, granularity,
+                              rain_cells, rain_cols, RAIN_ACCUM_HOURS if rain_cols else ())
+    save_metadata(client, metadata, saved_at, table_id("metadata", granularity))
     save_scalers(client, scalers, saved_at, table_id("scalers", granularity))
 
     print(f"Saved ({granularity}): preprocessed_data, metadata, scalers -> BigQuery")

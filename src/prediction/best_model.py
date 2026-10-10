@@ -1,18 +1,21 @@
 """Pick the best model (`model_selection`) and load its trained weights from BigQuery.
 
 - Prophet        -> satu model per stasiun (horizon tidak relevan).
-- LSTM/GRU/TFT   -> satu model PyTorch per (stasiun, horizon).
+- LSTM/GRU/TFT   -> satu model PyTorch per (stasiun, horizon), dengan jumlah
+                    fitur input per stasiun dari metadata (fitur hujan per DAS).
+- Akhiran "_norain" (mis. "lstm_norain") = varian ablation tanpa fitur hujan.
 """
 
 import io
-import json
 import pickle
 
 import torch
 from google.cloud import bigquery
 
 from .architectures import DEVICE, TORCH_ARCHITECTURES
-from .config import METADATA_TABLE, MODEL_SELECTION_TABLE, weights_table
+from .config import MODEL_SELECTION_TABLE, weights_table
+from .data import load_metadata
+from .features import feature_cols_for, split_model_name
 
 
 def get_best_model_name(client):
@@ -31,19 +34,8 @@ def get_best_model_name(client):
     return best["best_model"]
 
 
-def get_n_features(client):
-    row = client.query(f"""
-        SELECT payload
-        FROM `{METADATA_TABLE}`
-        ORDER BY saved_at DESC
-        LIMIT 1
-    """).to_dataframe().iloc[0]
-    metadata = json.loads(row["payload"])
-    return len(metadata["feature_cols"])
-
-
-def load_prophet_models(client, station=None):
-    table_id = weights_table("prophet")
+def load_prophet_models(client, model_name="prophet", station=None):
+    table_id = weights_table(model_name)
     query = f"SELECT station, weights FROM `{table_id}`"
     params = []
     if station is not None:
@@ -60,8 +52,9 @@ def load_prophet_models(client, station=None):
 
 
 def load_torch_models(client, model_name, station=None, horizon=None):
-    n_features = get_n_features(client)
-    build_model = TORCH_ARCHITECTURES[model_name]
+    architecture, use_rain = split_model_name(model_name)
+    metadata = load_metadata(client)
+    build_model = TORCH_ARCHITECTURES[architecture]
 
     table_id = weights_table(model_name)
     query = f"SELECT station, horizon, weights FROM `{table_id}`"
@@ -80,6 +73,7 @@ def load_torch_models(client, model_name, station=None, horizon=None):
 
     models = {}
     for _, row in rows.iterrows():
+        n_features = len(feature_cols_for(metadata, row["station"], use_rain))
         model = build_model(n_features).to(DEVICE)
         model.load_state_dict(torch.load(io.BytesIO(row["weights"]), map_location=DEVICE))
         model.eval()
@@ -91,7 +85,7 @@ def load_best_model(client=None, station=None, horizon=None):
     """Muat bobot model terbaik (menurut model_selection) dari BigQuery.
 
     Return: (models, model_name)
-    - model_name == "prophet": models = {station: Prophet model}
+    - arsitektur prophet: models = {station: Prophet model}
     - lainnya: models = {station: {horizon: nn.Module (eval mode)}}
     """
     if client is None:
@@ -100,12 +94,13 @@ def load_best_model(client=None, station=None, horizon=None):
         client = get_client()
 
     model_name = get_best_model_name(client)
+    architecture, _ = split_model_name(model_name)
 
-    if model_name == "prophet":
+    if architecture == "prophet":
         if horizon is not None:
             print("  [info] Prophet tidak per-horizon; parameter --horizon diabaikan.")
-        models = load_prophet_models(client, station=station)
-    elif model_name in TORCH_ARCHITECTURES:
+        models = load_prophet_models(client, model_name, station=station)
+    elif architecture in TORCH_ARCHITECTURES:
         models = load_torch_models(client, model_name, station=station, horizon=horizon)
     else:
         raise ValueError(f"Model '{model_name}' tidak dikenal oleh load_best_model.")

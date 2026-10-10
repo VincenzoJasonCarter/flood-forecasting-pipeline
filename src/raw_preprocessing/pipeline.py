@@ -21,8 +21,7 @@ from .gaps import fill_gaps, gap_lengths
 from .outliers import OUTLIER_COLS, clean_isolated_spikes, flag_outliers
 from .parsing import flatten_records
 from .resampling import resample_hourly, to_daily_max, to_wide
-from .storage import (append_station_features, get_client, load_existing_features, save_parquet,
-                      save_station_features)
+from .storage import get_client, load_existing_features, save_parquet, save_station_features
 
 
 def _resume_start(output_path, overlap_days):
@@ -52,8 +51,15 @@ def _merge_incremental(existing, new, start):
     """Gabungkan output lama dengan hasil crawl baru.
 
     Hari pertama window (`start`) hanya konteks interpolasi, jadi barisnya
-    tetap dari `existing`; baris sejak `start` + 1 hari diganti hasil baru."""
+    tetap dari `existing`; SEMUA baris sejak `start` + 1 hari diganti hasil
+    baru — termasuk jam-jam terakhir output lama yang mungkin masih NaN (laporan
+    telat), hasil ffill, atau rata-rata dari laporan yang belum lengkap.
+    Kolom mengikuti `existing` supaya skema tabel tidak berubah."""
     cut = pd.Timestamp(start) + timedelta(days=1)
+    extra = [c for c in new.columns if c not in existing.columns]
+    if extra:
+        print(f"Peringatan: kolom tidak ada di output lama, dilewati: {extra}")
+    new = new.reindex(columns=existing.columns)
     merged = pd.concat([existing[existing.index < cut], new[new.index >= cut]])
     stations = [c for c in merged.columns if c not in CALENDAR_COLS]
     return merged[stations + CALENDAR_COLS]
@@ -67,10 +73,9 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
     terakhir di `output_path`, lalu gabungkan dengan output lama. Kalau output
     belum ada, jatuh ke full crawl dari `start`.
 
-    incremental=True + write_bq=True: titik lanjut diambil dari MAX(datetime)
-    tabel BigQuery (sumber kebenaran), dan hanya baris SETELAH max itu yang
-    di-APPEND ke tabel. Hari-hari overlap hanya dipakai sebagai konteks
-    interpolasi. Parquet lokal ditulis sebagai gabungan tabel lama + baris baru."""
+    incremental=True + write_bq=True: sama, tapi output lama dibaca dari tabel
+    BigQuery (sumber kebenaran, titik lanjut = MAX(datetime)). Hasil gabungan
+    menimpa tabel (WRITE_TRUNCATE, atomik) dan parquet lokal."""
     # Validasi sebelum crawl, supaya typo tidak baru ketahuan setelah crawl panjang.
     if granularity not in GRANULARITIES:
         raise ValueError(f"granularity harus salah satu dari {GRANULARITIES}, bukan {granularity!r}")
@@ -81,9 +86,8 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
 
     existing = None
     client = get_client() if write_bq else None
-    bq_append = incremental and write_bq
     if incremental:
-        if bq_append:
+        if write_bq:
             existing, resume = _bq_resume(client, table_id, overlap_days)
             source = table_id
         else:
@@ -144,28 +148,16 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
     df_fe = add_calendar_features(df_out)
     print(f"\n{granularity} station features: {df_fe.shape} | holiday rows: {df_fe['is_holiday'].sum():,}")
 
-    if existing is not None and bq_append:
-        last = existing.index.max()
-        new_rows = df_fe[df_fe.index > last]
-        extra = [c for c in new_rows.columns if c not in existing.columns]
-        if extra:
-            print(f"Peringatan: kolom tidak ada di tabel BigQuery, dilewati: {extra}")
-        new_rows = new_rows.reindex(columns=existing.columns)
-        if new_rows.empty:
-            print(f"Incremental: tidak ada baris setelah {last}, tabel tidak diubah.")
-            return existing
-        append_station_features(client, new_rows, table_id)
-        df_fe = pd.concat([existing, new_rows])
-        print(f"Appended {len(new_rows):,} rows ({new_rows.index[0]} -> {new_rows.index[-1]})")
-        save_parquet(df_fe, output_path)
-        return df_fe
-
     if existing is not None:
+        n_before = len(existing)
         df_fe = _merge_incremental(existing, df_fe, start)
-        print(f"Merged with existing output: {df_fe.shape} | {df_fe.index[0]} -> {df_fe.index[-1]}")
+        print(f"Merged with existing output: {df_fe.shape} (+{len(df_fe) - n_before:,} rows) "
+              f"| {df_fe.index[0]} -> {df_fe.index[-1]}")
 
     save_parquet(df_fe, output_path)
     if write_bq:
+        # Seluruh tabel ditimpa (bukan APPEND) supaya jam-jam overlap ikut
+        # terkoreksi. WRITE_TRUNCATE atomik dan tidak butuh DML.
         save_station_features(client, df_fe, table_id)
         print(f"Saved: {table_id} -> BigQuery")
 

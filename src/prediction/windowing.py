@@ -12,11 +12,11 @@ def torch_window(df_scaled, lookback):
     return torch.tensor(window).unsqueeze(0)
 
 
-def prophet_frame(df_scaled, target_station, other_stations):
+def prophet_frame(df_scaled, target_station, regressors):
     """Satu baris (waktu terkini) dalam format Prophet: ds + regressors.
 
     `y` diisi placeholder dari nilai target sendiri (tidak dipakai saat
     predict), sesuai skema training Prophet-nya.
     """
-    latest = df_scaled.iloc[[-1]][[target_station] + other_stations].copy()
+    latest = df_scaled.iloc[[-1]][[target_station] + list(regressors)].copy()
     return latest.reset_index().rename(columns={"datetime": "ds", target_station: "y"})

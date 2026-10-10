@@ -4,8 +4,8 @@ dataset: tables
 location: US
 
 # Resolusi output: hourly (grid per jam) | daily (max harian per stasiun).
-# Bisa di-override per run: `make raw-preprocess ARGS="--granularity hourly"`.
-granularity: daily
+# Bisa di-override per run: `make raw-preprocess ARGS="--granularity daily"`.
+granularity: hourly
 
 api:
   base_url: https://sisteminformasibanjir.jakarta.go.id/api/report/posPengamatanReports

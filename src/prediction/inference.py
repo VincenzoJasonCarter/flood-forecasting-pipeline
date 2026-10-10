@@ -17,11 +17,11 @@ def forecast_torch(model, df_scaled, lookback, horizon, device):
     return as_of, forecast_time, pred_scaled
 
 
-def forecast_prophet(model, df_scaled, target_station, other_stations, horizon):
+def forecast_prophet(model, df_scaled, target_station, regressors, horizon):
     """Direct forecasting: regressor terkini (t) -> prediksi target di t+h,
     sesuai strategi direct forecasting yang dipakai saat training Prophet.
     """
-    df_p = prophet_frame(df_scaled, target_station, other_stations)
+    df_p = prophet_frame(df_scaled, target_station, regressors)
     as_of = df_p["ds"].iloc[0]
 
     df_shifted = df_p.copy()

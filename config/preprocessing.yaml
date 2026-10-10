@@ -4,17 +4,28 @@ dataset: tables
 location: US
 
 # Granularity data yang di-preprocess: hourly | daily. Menentukan set tabel
-# di bawah. Bisa di-override per run: `make preprocess ARGS="--granularity hourly"`.
-granularity: daily
+# di bawah. Bisa di-override per run: `make preprocess ARGS="--granularity daily"`.
+granularity: hourly
 
 tables:
   hourly:
     station_features: station_features_hourly          # input, hasil src/raw_preprocessing
     preprocessed_data: preprocessed_data_hourly        # df_train/val/test hasil olahan
     metadata: preprocessing_metadata_hourly            # kolom kalender/stasiun/fitur + column_map
-    scalers: preprocessing_scalers_hourly              # MinMaxScaler per stasiun (pickled)
+    scalers: preprocessing_scalers_hourly              # MinMaxScaler per stasiun + per fitur hujan (pickled)
   daily:
     station_features: station_features_daily
     preprocessed_data: preprocessed_data_daily
     metadata: preprocessing_metadata_daily
     scalers: preprocessing_scalers_daily
+
+# Fitur hujan per stasiun (granularity hourly saja): rata-rata hujan di
+# `top_cells` sel teratas stasiun itu, dijumlah selama tiap `accum_hours`
+# jam terakhir. Butuh tabel `rainfall` (hasil `make rainfall-bq`) dan file
+# ranking sel (hasil `make rainfall-rank`).
+rainfall:
+  enabled: true
+  table: rainfall_hourly
+  ranking: artifacts/rainfall_cell_ranking.csv   # relatif ke root repo
+  top_cells: 3              # <= TOP yang dipakai `make rainfall-bq`
+  accum_hours: [1, 3, 6, 12, 24]

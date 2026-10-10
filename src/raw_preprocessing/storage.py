@@ -35,13 +35,9 @@ def load_existing_features(client, table_id):
         return None
     if df.empty:
         return None
-    return df.set_index("datetime")
-
-
-def append_station_features(client, df_new, table_id):
-    """Tambahkan baris baru ke tabel yang sudah ada (WRITE_APPEND, tanpa menimpa)."""
-    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    job = client.load_table_from_dataframe(df_new.reset_index(), table_id, job_config=job_config)
-    job.result()
-    tbl = client.get_table(table_id)
-    print(f"  {table_id}: +{len(df_new):,} rows appended, total {tbl.num_rows:,} rows")
+    df = df.set_index("datetime")
+    # Kolom TIMESTAMP kembali sebagai UTC tz-aware; samakan dengan index naive
+    # hasil crawl supaya bisa digabung (nilai jamnya tidak berubah).
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert(None)
+    return df
