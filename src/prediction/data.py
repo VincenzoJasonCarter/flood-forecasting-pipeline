@@ -22,7 +22,7 @@ def load_metadata(client):
 
 
 def load_recent_scaled(client, lookback=LOOKBACK):
-    """Ambil `lookback` jam data terakhir, isi NaN (hourly median dari periode
+    """Ambil `lookback` langkah (jam/hari) data terakhir, isi NaN (hourly median dari periode
     training) lalu scale dengan scaler yang sama dengan training.
 
     Train split dihitung ulang dari seluruh histori `station_features` (sama
