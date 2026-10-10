@@ -40,4 +40,5 @@ _survey = _config["survey"]
 SURVEY_START = str(_survey["start"])
 SURVEY_END = str(_survey["end"])
 SURVEY_OUTPUT_PATH = _artifacts / f"{_survey['output']}.parquet"
+SURVEY_TABLE = f"{PROJECT_ID}.{DATASET}.{_survey['table']}"
 RANKING_PATH = _artifacts / "rainfall_cell_ranking.csv"

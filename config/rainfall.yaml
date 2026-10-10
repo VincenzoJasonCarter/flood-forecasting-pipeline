@@ -39,7 +39,8 @@ survey:
   # Tahap 2: histori penuh hanya untuk sel terpilih (`--select-top N`).
   start: "2023-11-01"
   end: "2024-04-30"
-  output: rainfall_survey   # artifacts/rainfall_survey.parquet (tidak ditulis ke BigQuery)
+  output: rainfall_survey          # artifacts/rainfall_survey.parquet (dibaca rainfall.analysis)
+  table: rainfall_survey_hourly    # salinan mentahnya di BigQuery (--write-bq), terpisah dari rainfall_hourly
 
 tables:
   rainfall: rainfall_hourly # juga nama parquet lokal: artifacts/rainfall_hourly.parquet

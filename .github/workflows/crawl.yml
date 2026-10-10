@@ -1,0 +1,61 @@
+name: crawl
+
+# Update data per jam ke BigQuery: TMA (sisteminformasibanjir) ->
+# station_features_hourly, curah hujan (Open-Meteo) -> rainfall_hourly, lalu
+# (opsional) forecast. Keduanya mode incremental: ambil ulang beberapa hari
+# terakhir, gabung, timpa tabel.
+#
+# Prasyarat (sekali, dari lokal): backfill awal sudah ada di BigQuery
+# (make raw-preprocess-incremental, make rainfall-survey/rank/bq). Kalau tabel
+# belum ada, run di sini jatuh ke full crawl/fetch yang lama dan boros kuota.
+#
+# Secrets (Settings -> Secrets and variables -> Actions):
+#   SIBANJIR_TOKEN  token API sisteminformasibanjir
+#   GCP_SA_KEY      JSON key service account (BigQuery Data Editor + BigQuery Job User)
+# Variable (opsional): RUN_PREDICT = true untuk ikut menjalankan forecast,
+#   setelah model_selection_hourly dan bobot model hourly ada.
+#
+# Jadwal cron dalam UTC dan hanya berjalan dari default branch; GitHub bisa
+# menunda run terjadwal beberapa menit.
+
+on:
+  schedule:
+    - cron: "15 * * * *"   # tiap jam, menit ke-15 UTC
+  workflow_dispatch:       # tombol "Run workflow" di tab Actions
+
+concurrency:
+  group: crawl
+  cancel-in-progress: false  # dua run bersamaan sama-sama menimpa tabel
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_FROZEN: "1"  # pakai uv.lock apa adanya
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: TMA -> station_features_hourly
+        run: make raw-preprocess-incremental
+        env:
+          SIBANJIR_TOKEN: ${{ secrets.SIBANJIR_TOKEN }}
+
+      - name: Curah hujan -> rainfall_hourly
+        if: ${{ !cancelled() }}  # tetap jalan walau langkah TMA gagal
+        run: make rainfall-incremental
+
+      - name: Forecast -> forecast_output_hourly
+        if: ${{ !cancelled() && vars.RUN_PREDICT == 'true' }}
+        run: make predict ARGS="--write-bq"

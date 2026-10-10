@@ -147,6 +147,15 @@ serves (currently `hourly`) and the matching table set; `LOOKBACK`/`HORIZONS`
 for each granularity live in `src/prediction/config.py`. Run `make help` for
 every target.
 
+### Scheduled updates (GitHub Actions)
+
+`.github/workflows/crawl.yml` runs every hour (and on demand from the Actions
+tab): `raw-preprocess-incremental`, `rainfall-incremental`, and — once the
+repository variable `RUN_PREDICT` is `true` — `predict --write-bq`. It needs
+the repository secrets `SIBANJIR_TOKEN` and `GCP_SA_KEY` (a service-account
+JSON key with BigQuery Data Editor + BigQuery Job User), runs only from the
+default branch, and assumes the initial backfills already exist in BigQuery.
+
 Run the test suite (unit tests only, no BigQuery access needed):
 
 ```
