@@ -36,6 +36,7 @@ STATION_FEATURES_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['station_features']}"
 METADATA_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['metadata']}"
 SCALERS_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['scalers']}"
 FORECAST_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['forecast_output']}"
+RAINFALL_TABLE = f"{PROJECT_ID}.{DATASET}.{_tables['rainfall']}"
 _WEIGHTS_SUFFIX = _tables["weights_suffix"]
 
 

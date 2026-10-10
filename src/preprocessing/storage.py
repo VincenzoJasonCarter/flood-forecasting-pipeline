@@ -7,7 +7,6 @@ import pandas as pd
 from google.cloud import bigquery
 
 from .bigquery_io import load_df
-from .config import CALENDAR_COLS
 from .scaling import make_bq_frame
 
 
@@ -20,13 +19,8 @@ def save_preprocessed_data(client, df_train, df_val, df_test, column_map, table_
     load_df(client, preprocessed_df, table_id)  # schema autodetect (kolom stasiun dinamis)
 
 
-def save_metadata(client, station_cols, column_map, saved_at, table_id):
-    metadata = {
-        "CALENDAR_COLS": CALENDAR_COLS,
-        "station_cols": station_cols,
-        "feature_cols": station_cols + CALENDAR_COLS,
-        "column_map": column_map,  # station -> kolom BigQuery
-    }
+def save_metadata(client, metadata, saved_at, table_id):
+    """Simpan payload `metadata.build_metadata` sebagai satu baris JSON."""
     schema = [
         bigquery.SchemaField("payload", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("saved_at", "TIMESTAMP", mode="REQUIRED"),
@@ -39,6 +33,8 @@ def save_metadata(client, station_cols, column_map, saved_at, table_id):
 
 
 def save_scalers(client, scalers, saved_at, table_id):
+    """Satu baris per scaler. Kolom `station` berisi nama stasiun, atau nama
+    kolom fitur hujan (rain_*) untuk scaler fitur hujan."""
     schema = [
         bigquery.SchemaField("station", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("scaler_blob", "BYTES", mode="REQUIRED"),
