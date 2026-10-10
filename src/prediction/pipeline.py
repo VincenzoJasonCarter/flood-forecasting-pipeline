@@ -3,7 +3,7 @@
 Alur:
 1. Tentukan model terbaik (`model_selection`) dan load bobotnya
    (`load_best_model`, dari script di root proyek).
-2. Ambil `LOOKBACK` jam data terakhir dari `station_features`, isi NaN
+2. Ambil `LOOKBACK` langkah (jam/hari) data terakhir dari `station_features`, isi NaN
    (hourly median dari periode training) dan scale (scaler yang sama dengan
    training) — proses yang sama seperti `00_Preprocessing`/`preprocessing`,
    tapi untuk data terbaru.

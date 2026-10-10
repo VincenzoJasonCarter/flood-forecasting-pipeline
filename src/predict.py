@@ -20,7 +20,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--station", default=None, help="Filter satu stasiun saja.")
     parser.add_argument("--horizon", type=int, nargs="+", default=None,
-                         help="Filter horizon (jam), mis. --horizon 1 3.")
+                         help="Filter horizon (jam/hari sesuai granularity di config/prediction.yaml), "
+                             "mis. --horizon 1 3.")
     parser.add_argument("--write-bq", action="store_true",
                          help="Simpan hasil ke BigQuery (tables.forecast_output).")
     parser.add_argument("--csv", default=None, help="Simpan hasil ke file CSV.")

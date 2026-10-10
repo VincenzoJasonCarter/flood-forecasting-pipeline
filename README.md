@@ -111,10 +111,11 @@ make preprocess ARGS="--granularity hourly"
 ```
 
 None of these touch the unsuffixed tables (`station_features`,
-`preprocessing_metadata`, `preprocessing_scalers`) that `prediction` reads for
-the currently deployed models — point `config/prediction.yaml` at the
-`_hourly`/`_daily` tables once a model for that granularity is trained. Run
-`make help` for every target.
+`preprocessing_metadata`, `preprocessing_scalers`) that hold the older hourly
+models. `config/prediction.yaml` sets the `granularity` that `prediction`
+serves (currently `daily`) and the matching table set; `LOOKBACK`/`HORIZONS`
+for each granularity live in `src/prediction/config.py`. Run `make help` for
+every target.
 
 Run the test suite (unit tests only, no BigQuery access needed):
 
@@ -141,7 +142,7 @@ uv run pytest
    `model_selection`.
 3. `prediction` reads `model_selection` to pick the winning model, loads its
    weights, pulls the latest data from the tables in `config/prediction.yaml`
-   (currently the unsuffixed hourly ones), reapplies the same
+   (currently the `_daily` ones), reapplies the same
    preprocessing/scaling, runs inference, and inverse-transforms the result
    back to cm.
 
