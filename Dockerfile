@@ -9,6 +9,7 @@ RUN uv sync --frozen --no-cache
 COPY config/ ./config/
 COPY src/ ./src/
 COPY main.py ./
+COPY deploy/hourly_job.sh ./deploy/
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

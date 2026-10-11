@@ -104,10 +104,12 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
     if failed:
         print(f"  failed: {failed}")
     if not raw:
-        if existing is not None:
-            print("Incremental: tidak ada data baru, output tidak diubah.")
-            return existing
-        raise RuntimeError(f"API tidak mengembalikan data untuk {start} -> {end}.")
+        # Window incremental selalu mencakup hari yang sudah ada datanya, jadi
+        # nol baris berarti API tidak terjangkau (mis. diblokir dari IP luar
+        # Indonesia), bukan "tidak ada data baru" — gagal keras supaya run
+        # terjadwal tidak sukses tanpa menulis apa pun.
+        raise RuntimeError(f"API tidak mengembalikan data untuk {start} -> {end} "
+                           f"({len(failed)} hari gagal).")
 
     df = flatten_records(raw)
     df_long = resample_hourly(df)

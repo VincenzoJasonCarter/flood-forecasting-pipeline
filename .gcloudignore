@@ -1,0 +1,15 @@
+# Build context untuk `gcloud builds submit`: hanya file yang di-COPY Dockerfile
+# (tanpa ini, .venv / artifacts / notebooks ikut ter-upload).
+*
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!main.py
+!config/
+!config/**
+!src/
+!src/**
+!deploy/
+!deploy/hourly_job.sh
+**/__pycache__/
