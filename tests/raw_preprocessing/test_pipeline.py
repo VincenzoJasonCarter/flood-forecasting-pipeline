@@ -31,6 +31,17 @@ def test_resume_start_goes_back_overlap_days(tmp_path):
     assert start == "2026-01-07"
 
 
+def test_incremental_run_fails_when_every_day_fails(tmp_path, monkeypatch):
+    # API tidak terjangkau: semua hari gagal -> error, bukan sukses tanpa menulis.
+    path = tmp_path / "out.parquet"
+    _frame(10, 1).to_parquet(path)
+    monkeypatch.setattr("raw_preprocessing.pipeline.get_token", lambda: "token")
+    monkeypatch.setattr("raw_preprocessing.pipeline.crawl_range",
+                        lambda start, end, token: ([], [start, end]))
+    with pytest.raises(RuntimeError, match="tidak mengembalikan data"):
+        run(output_path=path, incremental=True, end="2026-01-10")
+
+
 def test_merge_incremental_keeps_context_day_and_replaces_rest():
     existing = _frame(10, 1)  # s/d 2026-01-10
     new = _frame(7, 2, start="2026-01-07")  # crawl ulang dari 01-07, s/d 01-13

@@ -147,14 +147,24 @@ serves (currently `hourly`) and the matching table set; `LOOKBACK`/`HORIZONS`
 for each granularity live in `src/prediction/config.py`. Run `make help` for
 every target.
 
-### Scheduled updates (GitHub Actions)
+### Scheduled updates (Cloud Run Job)
 
-`.github/workflows/crawl.yml` runs every hour (and on demand from the Actions
-tab): `raw-preprocess-incremental`, `rainfall-incremental`, and — once the
-repository variable `RUN_PREDICT` is `true` — `predict --write-bq`. It needs
-the repository secrets `SIBANJIR_TOKEN` and `GCP_SA_KEY` (a service-account
-JSON key with BigQuery Data Editor + BigQuery Job User), runs only from the
-default branch, and assumes the initial backfills already exist in BigQuery.
+The Cloud Run Job `flood-hourly` in `asia-southeast2` (Jakarta) runs
+[`deploy/hourly_job.sh`](deploy/hourly_job.sh) every hour at minute 15 WIB,
+triggered by Cloud Scheduler: raw preprocessing incremental, rainfall
+incremental, and — when the job's env var `RUN_PREDICT` is `true` —
+`predict --write-bq`. It has to run from an Indonesian region: the
+sisteminformasibanjir API drops requests from IPs outside Indonesia (GitHub
+Actions runners and `us-central1` time out).
+
+One-time setup (and redeploy after code changes), from the repo root after
+`gcloud auth login`, with `SIBANJIR_TOKEN` in `.env` and the initial backfills
+already in BigQuery:
+
+```
+bash deploy/setup_cloud_run.sh
+gcloud run jobs execute flood-hourly --region asia-southeast2 --project thesis-506605 --wait
+```
 
 Run the test suite (unit tests only, no BigQuery access needed):
 
