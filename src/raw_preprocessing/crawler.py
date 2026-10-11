@@ -10,7 +10,8 @@ from .config import API_BASE_URL, API_TOKEN_ENV
 
 
 def get_token():
-    token = os.environ.get(API_TOKEN_ENV)
+    # strip: spasi/newline dari .env atau Secret Manager bikin requests menolak header.
+    token = (os.environ.get(API_TOKEN_ENV) or "").strip()
     if not token:
         raise RuntimeError(f"Env var {API_TOKEN_ENV} belum di-set (token API sisteminformasibanjir).")
     return token
@@ -34,7 +35,7 @@ def fetch_day(session, d, token, max_retries=5):
             r.raise_for_status()
             return r.json().get("data", [])
         except (requests.RequestException, ValueError) as e:
-            print(f"  retry {d}: {e}")
+            print(f"  retry {d}: {str(e).replace(token, '***')}")  # pesan InvalidHeader memuat token
             time.sleep(2 ** attempt)
     return None
 

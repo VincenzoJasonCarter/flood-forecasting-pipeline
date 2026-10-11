@@ -41,7 +41,7 @@ for role in roles/bigquery.dataEditor roles/bigquery.jobUser roles/run.invoker; 
 done
 
 echo "== Secret $SECRET (dari .env)"
-TOKEN=$(grep '^SIBANJIR_TOKEN=' .env | cut -d= -f2- | tr -d '"\r')
+TOKEN=$(grep '^SIBANJIR_TOKEN=' .env | cut -d= -f2- | tr -d '"\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 if gc secrets describe "$SECRET" >/dev/null 2>&1; then
     printf %s "$TOKEN" | gc secrets versions add "$SECRET" --data-file=-
 else
@@ -51,10 +51,12 @@ gc secrets add-iam-policy-binding "$SECRET" --member "serviceAccount:$SA" \
     --role roles/secretmanager.secretAccessor >/dev/null
 
 echo "== Cloud Run Job $JOB"
+# Path skrip relatif ke WORKDIR /app: path absolut diubah Git Bash (Windows)
+# jadi C:/Program Files/Git/app/...
 # TZ: date.today() (tanggal akhir crawl) ikut WIB, bukan UTC — kalau UTC, data
 # 00:00-07:00 WIB baru ter-crawl setelah jam 07:00.
 gc run jobs deploy "$JOB" --region "$REGION" --image "$IMAGE" --service-account "$SA" \
-    --command sh --args /app/deploy/hourly_job.sh \
+    --command sh --args deploy/hourly_job.sh \
     --set-secrets "SIBANJIR_TOKEN=$SECRET:latest" \
     --set-env-vars "RUN_PREDICT=$RUN_PREDICT,TZ=Asia/Jakarta,PYTHONUNBUFFERED=1" \
     --cpu 1 --memory 2Gi --task-timeout 30m --max-retries 0
