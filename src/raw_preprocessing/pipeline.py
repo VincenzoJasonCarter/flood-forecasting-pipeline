@@ -6,7 +6,7 @@ import pandas as pd
 
 from .config import (
     CALENDAR_COLS,
-    CLEAN_ISOLATED_SPIKES,
+    CLEAN_GLITCHES,
     GAP_LIMIT,
     GRANULARITIES,
     GRANULARITY,
@@ -18,7 +18,7 @@ from .config import (
 from .crawler import crawl_range, get_token
 from .features import add_calendar_features
 from .gaps import fill_gaps, gap_lengths
-from .outliers import OUTLIER_COLS, clean_isolated_spikes, flag_outliers
+from .outliers import OUTLIER_COLS, clean_glitches, flag_outliers
 from .parsing import flatten_records
 from .resampling import resample_hourly, to_daily_max, to_wide
 from .storage import get_client, load_existing_features, save_parquet, save_station_features
@@ -120,12 +120,16 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
                      .sort_values("outlier_any", ascending=False))
     print("Outlier ratio per stasiun:")
     print(outlier_stats.round(4).to_string())
-    if CLEAN_ISOLATED_SPIKES:
-        df_long = clean_isolated_spikes(df_long)
 
     df_wide = to_wide(df_long)
     print(f"\nWide: {df_wide.shape[0]:,} rows x {df_wide.shape[1]} stations "
           f"| {df_wide.index[0]} -> {df_wide.index[-1]}")
+
+    if CLEAN_GLITCHES:
+        # Sebelum fill_gaps, supaya nilai yang dibuang ikut diinterpolasi.
+        df_wide, glitch_stats = clean_glitches(df_wide)
+        print("Glitch dibuang per stasiun:")
+        print(glitch_stats.to_string())
 
     gap_summary = pd.DataFrame({
         station: {
