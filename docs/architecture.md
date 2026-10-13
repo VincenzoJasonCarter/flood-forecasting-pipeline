@@ -16,9 +16,10 @@ parsing.flatten_records             (pure: nested JSON -> typed long frame, dedu
 resampling.resample_hourly          (pure: hourly mean per station)
         |
 outliers.flag_outliers              (pure: IQR / z-score / physical flags)
-outliers.clean_isolated_spikes      (pure, off by default: CLEAN_ISOLATED_SPIKES)
         |
 resampling.to_wide                  (pure: pivot -> one column per station, hourly grid)
+        |
+outliers.clean_glitches             (pure, CLEAN_GLITCHES: out-of-range values + 1-3 h spikes -> NaN)
         |
 gaps.fill_gaps                      (pure: time interpolate -> ffill -> bfill, limit 6 h)
         |
