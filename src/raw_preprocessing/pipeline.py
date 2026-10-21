@@ -1,5 +1,6 @@
 """Full raw preprocessing pipeline, chaining every step of the package together."""
 
+import logging
 from datetime import date, timedelta
 
 import pandas as pd
@@ -22,6 +23,8 @@ from .outliers import OUTLIER_COLS, clean_glitches, flag_outliers
 from .parsing import flatten_records
 from .resampling import resample_hourly, to_daily_max, to_wide
 from .storage import get_client, load_existing_features, save_parquet, save_station_features
+
+logger = logging.getLogger(__name__)
 
 
 def _resume_start(output_path, overlap_days):
@@ -58,7 +61,7 @@ def _merge_incremental(existing, new, start):
     cut = pd.Timestamp(start) + timedelta(days=1)
     extra = [c for c in new.columns if c not in existing.columns]
     if extra:
-        print(f"Peringatan: kolom tidak ada di output lama, dilewati: {extra}")
+        logger.warning("Kolom tidak ada di output lama, dilewati: %s", extra)
     new = new.reindex(columns=existing.columns)
     merged = pd.concat([existing[existing.index < cut], new[new.index >= cut]])
     stations = [c for c in merged.columns if c not in CALENDAR_COLS]
@@ -94,15 +97,15 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
             existing, resume = _resume_start(output_path, overlap_days)
             source = output_path
         if existing is None:
-            print(f"Incremental: {source} belum ada, full crawl dari {start}")
+            logger.info("Incremental: %s belum ada, full crawl dari %s", source, start)
         else:
             start = resume
-            print(f"Incremental: output lama s/d {existing.index.max()}, crawl ulang dari {start}")
+            logger.info("Incremental: output lama s/d %s, crawl ulang dari %s", existing.index.max(), start)
 
     raw, failed = crawl_range(start, end, token)
-    print(f"rows: {len(raw):,}, failed days: {len(failed)}")
+    logger.info("rows: %s, failed days: %d", f"{len(raw):,}", len(failed))
     if failed:
-        print(f"  failed: {failed}")
+        logger.warning("failed: %s", failed)
     if not raw:
         # Window incremental selalu mencakup hari yang sudah ada datanya, jadi
         # nol baris berarti API tidak terjangkau (mis. diblokir dari IP luar
@@ -113,23 +116,21 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
 
     df = flatten_records(raw)
     df_long = resample_hourly(df)
-    print(f"Resampled: {df_long.shape} | stations: {df_long['station_name'].nunique()}")
+    logger.info("Resampled: %s | stations: %d", df_long.shape, df_long["station_name"].nunique())
 
     df_long = flag_outliers(df_long)
     outlier_stats = (df_long.groupby("station_name")[OUTLIER_COLS].mean()
                      .sort_values("outlier_any", ascending=False))
-    print("Outlier ratio per stasiun:")
-    print(outlier_stats.round(4).to_string())
+    logger.info("Outlier ratio per stasiun:\n%s", outlier_stats.round(4).to_string())
 
     df_wide = to_wide(df_long)
-    print(f"\nWide: {df_wide.shape[0]:,} rows x {df_wide.shape[1]} stations "
-          f"| {df_wide.index[0]} -> {df_wide.index[-1]}")
+    logger.info("Wide: %s rows x %d stations | %s -> %s",
+                f"{df_wide.shape[0]:,}", df_wide.shape[1], df_wide.index[0], df_wide.index[-1])
 
     if CLEAN_GLITCHES:
         # Sebelum fill_gaps, supaya nilai yang dibuang ikut diinterpolasi.
         df_wide, glitch_stats = clean_glitches(df_wide)
-        print("Glitch dibuang per stasiun:")
-        print(glitch_stats.to_string())
+        logger.info("Glitch dibuang per stasiun:\n%s", glitch_stats.to_string())
 
     gap_summary = pd.DataFrame({
         station: {
@@ -141,30 +142,30 @@ def run(start=START_DATE, end=None, granularity=GRANULARITY, output_path=None, w
 
     df_filled = fill_gaps(df_wide)
     gap_summary["missing_after"] = df_filled.isna().sum()
-    print("Missing per stasiun (sebelum/sesudah pengisian gap):")
-    print(gap_summary.sort_values("missing_before", ascending=False).to_string())
+    logger.info("Missing per stasiun (sebelum/sesudah pengisian gap):\n%s",
+                gap_summary.sort_values("missing_before", ascending=False).to_string())
 
     if granularity == "daily":
         df_out = to_daily_max(df_filled)
-        print(f"\nDaily max: {df_out.shape[0]:,} days x {df_out.shape[1]} stations "
-              f"| days still NaN per stasiun: {df_out.isna().sum().to_dict()}")
+        logger.info("Daily max: %s days x %d stations | days still NaN per stasiun: %s",
+                    f"{df_out.shape[0]:,}", df_out.shape[1], df_out.isna().sum().to_dict())
     else:
         df_out = df_filled
 
     df_fe = add_calendar_features(df_out)
-    print(f"\n{granularity} station features: {df_fe.shape} | holiday rows: {df_fe['is_holiday'].sum():,}")
+    logger.info("%s station features: %s | holiday rows: %s", granularity, df_fe.shape, f"{df_fe['is_holiday'].sum():,}")
 
     if existing is not None:
         n_before = len(existing)
         df_fe = _merge_incremental(existing, df_fe, start)
-        print(f"Merged with existing output: {df_fe.shape} (+{len(df_fe) - n_before:,} rows) "
-              f"| {df_fe.index[0]} -> {df_fe.index[-1]}")
+        logger.info("Merged with existing output: %s (+%s rows) | %s -> %s",
+                    df_fe.shape, f"{len(df_fe) - n_before:,}", df_fe.index[0], df_fe.index[-1])
 
     save_parquet(df_fe, output_path)
     if write_bq:
         # Seluruh tabel ditimpa (bukan APPEND) supaya jam-jam overlap ikut
         # terkoreksi. WRITE_TRUNCATE atomik dan tidak butuh DML.
         save_station_features(client, df_fe, table_id)
-        print(f"Saved: {table_id} -> BigQuery")
+        logger.info("Saved: %s -> BigQuery", table_id)
 
     return df_fe

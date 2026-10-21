@@ -11,14 +11,19 @@ Lainnya (dari src/):
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import pandas as pd
+
+from logging_setup import configure_logging
 
 from . import run
 from .config import (RAINFALL_TABLE, RANKING_PATH, START_DATE, SURVEY_END, SURVEY_OUTPUT_PATH, SURVEY_START,
                      SURVEY_TABLE)
 from .frames import select_top_cells
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -43,6 +48,7 @@ def main():
     parser.add_argument("--ranking", type=Path, default=RANKING_PATH,
                         help=f"File ranking untuk --select-top (default: artifacts/{RANKING_PATH.name}).")
     args = parser.parse_args()
+    configure_logging()
 
     start, end, output, table = args.start or START_DATE, args.end, args.output, RAINFALL_TABLE
     if args.survey:
@@ -56,7 +62,7 @@ def main():
         if not args.ranking.exists():
             parser.error(f"{args.ranking} belum ada; jalankan --survey lalu `python -m rainfall.analysis` dulu")
         cells = select_top_cells(pd.read_csv(args.ranking), args.select_top)
-        print(f"Sel terpilih (top {args.select_top} per stasiun): {len(cells)}")
+        logger.info("Sel terpilih (top %d per stasiun): %d", args.select_top, len(cells))
 
     run(start=start, end=end, output_path=output, write_bq=args.write_bq,
         incremental=args.incremental, cells=cells, table_id=table)

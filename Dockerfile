@@ -7,11 +7,16 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-cache
 
 COPY config/ ./config/
+COPY queries/ ./queries/
 COPY src/ ./src/
 COPY main.py ./
 COPY deploy/hourly_job.sh ./deploy/
 
-ENV PATH="/app/.venv/bin:${PATH}"
+ENV PATH="/app/.venv/bin:${PATH}"     PYTHONUNBUFFERED=1
+
+# Jalan sebagai user biasa, bukan root.
+RUN useradd --system --no-create-home --uid 10001 app
+USER app
 
 # GCP credentials are provided at runtime (mounted service-account key via
 # GOOGLE_APPLICATION_CREDENTIALS, or workload identity) — not baked into the image.

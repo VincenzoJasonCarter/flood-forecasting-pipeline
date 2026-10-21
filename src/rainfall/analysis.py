@@ -14,15 +14,19 @@ Pemakaian (dari src/, butuh parquet hourly TMA + hasil `python -m rainfall --sur
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import pandas as pd
 
+from logging_setup import configure_logging
 from preprocessing.splitting import split_data
 from raw_preprocessing.config import CALENDAR_COLS, default_output_path
 
 from .config import RANKING_PATH, SURVEY_OUTPUT_PATH
 from .frames import parse_cell_column
+
+logger = logging.getLogger(__name__)
 
 
 def level_rise(level):
@@ -65,13 +69,14 @@ def main():
                         help=f"Parquet hujan semua sel (default: hasil --survey, {SURVEY_OUTPUT_PATH.name}).")
     parser.add_argument("--output", type=Path, default=RANKING_PATH)
     args = parser.parse_args()
+    configure_logging()
 
     features = pd.read_parquet(args.features)
     rain = pd.read_parquet(args.rainfall)
     train, _, _ = split_data(features)
     overlap = rain.index[(rain.index >= train.index[0]) & (rain.index <= train.index[-1])]
-    print(f"Periode train: {train.index[0]} -> {train.index[-1]} | {rain.shape[1]} sel hujan | "
-          f"{len(overlap):,} jam hujan di dalam periode train")
+    logger.info("Periode train: %s -> %s | %d sel hujan | %s jam hujan di dalam periode train",
+                train.index[0], train.index[-1], rain.shape[1], f"{len(overlap):,}")
     if len(overlap) == 0:
         raise SystemExit("Data hujan tidak beririsan dengan periode train; cek tanggal survey di config/rainfall.yaml.")
 
@@ -85,7 +90,7 @@ def main():
         print(ranking.head(args.top).drop(columns="station").round(3).to_string(index=False))
 
     pd.concat(results, ignore_index=True).to_csv(args.output, index=False)
-    print(f"\nSaved: {args.output}")
+    logger.info("Saved: %s", args.output)
 
 
 if __name__ == "__main__":

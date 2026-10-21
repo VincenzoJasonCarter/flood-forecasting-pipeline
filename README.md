@@ -20,12 +20,16 @@ here.
 │   ├── raw_preprocessing.yaml # API endpoint + BigQuery table names used by src/raw_preprocessing
 │   ├── rainfall.yaml        # Open-Meteo model, grid bounding box + table name used by src/rainfall
 │   ├── preprocessing.yaml   # BigQuery project/dataset/table names used by src/preprocessing
-│   └── prediction.yaml      # BigQuery project/dataset/table names used by src/prediction
+│   └── prediction.yaml      # BigQuery project/dataset/table names + lookback/horizons used by src/prediction
+├── queries/                 # every BigQuery SQL statement, as .sql files (common/, prediction/)
 ├── docs/
 │   └── architecture.md      # module-level call flow, pure vs. I/O boundaries
 ├── tests/                   # unit tests for pure logic (no BigQuery access)
 └── src/
-    ├── settings.py          # loads a module's YAML from config/
+    ├── settings.py          # loads a module's YAML from config/ (+ GCP_PROJECT/BQ_DATASET/BQ_LOCATION overrides)
+    ├── query_loader.py      # reads queries/*.sql, validates + fills table/column identifiers
+    ├── bq.py                # shared BigQuery helpers: client factory, run_query, naive datetime index
+    ├── logging_setup.py     # logging config for the CLIs (JSON with severity on Cloud Run)
     ├── raw_preprocessing/   # API crawl -> station_features_{hourly,daily} (water level + calendar features)
     ├── rainfall/            # Open-Meteo -> rainfall_hourly (rain per grid cell) + per-station cell ranking
     ├── preprocessing/       # one-time setup: station_features -> train/val/test, scalers, metadata
@@ -62,11 +66,32 @@ no-op outside Google Colab — it only handles the Colab-specific auth flow.)
 
 ## Configuration
 
-`config/raw_preprocessing.yaml`, `config/preprocessing.yaml` and
+`config/raw_preprocessing.yaml`, `config/rainfall.yaml`,
+`config/preprocessing.yaml` and
 `config/prediction.yaml` each declare their own `project`, `dataset`,
 `location`, and the BigQuery table names they read or write. They're separate files because preprocessing and prediction are
 independently runnable — pointing either one at a different project/dataset
 (e.g. a staging environment) doesn't require touching the other.
+
+### Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `GCP_PROJECT`, `BQ_DATASET`, `BQ_LOCATION` | Override `project` / `dataset` / `location` in every `config/*.yaml`, e.g. to point a run at a staging dataset without editing files. |
+| `SIBANJIR_TOKEN` | API token for `raw_preprocessing` (see `.env.example`). |
+| `LOG_LEVEL` | `DEBUG` / `INFO` (default) / `WARNING` / `ERROR`. |
+| `LOG_FORMAT` | `json` or `text`. Defaults to `json` on Cloud Run (so Cloud Logging picks up `severity`), `text` elsewhere. |
+
+### SQL queries
+
+All BigQuery SQL lives in [`queries/`](queries/) as `.sql` files, not as
+strings in Python. Values (`@station`, `@horizon`, `@since`) are query
+parameters; optional filters are written as `@x IS NULL OR col = @x` so each
+file is one fixed statement. Only table and column names, which BigQuery can't
+parameterize, are substituted into `{table}` / `{columns}` — by
+`src/query_loader.py`, which rejects anything that isn't a plain
+`project.dataset.table` / column name. To change a query, edit the `.sql`
+file; to add one, drop a file in and call `bq.run_query(client, "folder/name", table=...)`.
 
 ## Usage
 
@@ -143,8 +168,8 @@ rainfall steps above first. This is the only preprocessing path — notebook
 None of these touch the unsuffixed tables (`station_features`,
 `preprocessing_metadata`, `preprocessing_scalers`) that hold the older hourly
 models. `config/prediction.yaml` sets the `granularity` that `prediction`
-serves (currently `hourly`) and the matching table set; `LOOKBACK`/`HORIZONS`
-for each granularity live in `src/prediction/config.py`. Run `make help` for
+serves (currently `hourly`) and the matching table set; `lookback`/`horizons`
+for each granularity live under `model:` in the same file. Run `make help` for
 every target.
 
 ### Scheduled updates (Cloud Run Job)
@@ -166,11 +191,18 @@ bash deploy/setup_cloud_run.sh
 gcloud run jobs execute flood-hourly --region asia-southeast2 --project thesis-506605 --wait
 ```
 
-Run the test suite (unit tests only, no BigQuery access needed):
+Run the test suite (unit tests only, no BigQuery access needed; the same
+command runs in CI on every push and pull request):
 
 ```
 uv run pytest
 ```
+
+Diagnostics go through `logging` (configured by each CLI, see `LOG_LEVEL` /
+`LOG_FORMAT` above). Only command results — the forecast table from
+`predict.py`, the ranking from `rainfall.analysis` — are printed to stdout.
+When calling `run()` from a notebook, call
+`logging_setup.configure_logging()` first to see progress output.
 
 ## How it fits together
 

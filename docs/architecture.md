@@ -103,7 +103,7 @@ the pipeline against a real project/dataset.
 Entry point: `predict.main()` -> `pipeline.forecast_latest()`.
 
 ```
-best_model.load_best_model     (I/O: reads model_selection + {model}_weights;
+best_model.load_best_model     (I/O: queries/prediction/*.sql — model_selection + {model}_weights;
                                  n_features per station from metadata)
 data.load_recent_scaled        (I/O: reads prediction.yaml's station_features + rainfall,
                                  rebuilds features with preprocessing's functions,
@@ -129,10 +129,32 @@ is still served the old way. It passes its own tables from
 `config/prediction.yaml`, so switching `preprocessing`'s granularity never
 changes what the deployed model receives.
 
+## Queries and BigQuery access
+
+```
+queries/common/        select_all_ordered.sql, rainfall_cells.sql   (used by preprocessing, rainfall, raw_preprocessing, prediction)
+queries/prediction/    model_selection_latest.sql, metadata_latest.sql, scalers.sql,
+                       prophet_weights.sql, torch_weights.sql
+
+query_loader.load_query(name, table=, columns=)   (pure: read .sql, validate + fill {table}/{columns})
+        |
+bq.run_query(client, name, table=, columns=, params=)   (I/O: QueryJobConfig with @parameters, 10 min timeout -> DataFrame)
+```
+
+`query_loader` is pure and unit-tested (`tests/test_query_loader.py` renders
+every file in `queries/`, so a stray `{` or a missing file fails CI). Callers
+never build SQL strings: filters are `@param IS NULL OR col = @param`, passed
+as `bq.scalar_param(...)` (`None` = no filter). Each package owns a thin
+`get_client()` that calls `bq.make_client(PROJECT_ID, LOCATION)` with its own
+config, so `prediction` uses `prediction.yaml`'s project, not
+`preprocessing`'s. `queries/` is copied into the Docker image and listed in
+`.gcloudignore`.
+
 ## Config loading
 
 `src/settings.py` reads `config/{name}.yaml` relative to the repo root at
-import time. `raw_preprocessing/config.py`, `rainfall/config.py`,
+import time; `GCP_PROJECT`, `BQ_DATASET` and `BQ_LOCATION` env vars override
+the YAML's `project`, `dataset` and `location`. `raw_preprocessing/config.py`, `rainfall/config.py`,
 `preprocessing/config.py` and `prediction/config.py` each call `load_config` once at module import and
 derive their table-path constants from it — so importing any of these
 packages requires the corresponding YAML file

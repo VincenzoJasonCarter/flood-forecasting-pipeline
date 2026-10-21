@@ -2,6 +2,8 @@
 
 from google.cloud import bigquery
 
+from bq import log_table_size
+
 from .config import FORECAST_TABLE
 
 
@@ -18,5 +20,4 @@ def save_forecast(client, forecast_df):
     job_config = bigquery.LoadJobConfig(schema=schema, write_disposition="WRITE_APPEND")
     job = client.load_table_from_dataframe(forecast_df, FORECAST_TABLE, job_config=job_config)
     job.result()
-    tbl = client.get_table(FORECAST_TABLE)
-    print(f"  {FORECAST_TABLE}: {tbl.num_rows:,} rows total")
+    log_table_size(client, FORECAST_TABLE)

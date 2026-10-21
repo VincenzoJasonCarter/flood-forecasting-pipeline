@@ -1,6 +1,10 @@
 """NaN imputation using per-station hourly medians from the training set."""
 
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def compute_hourly_medians(df_train_raw, station_cols):
@@ -18,7 +22,7 @@ def fill_nan_hourly_median(df, hourly_medians, station_cols):
         if nan_mask.sum() == 0:
             continue
         df.loc[nan_mask, station] = df.loc[nan_mask].index.hour.map(hourly_medians[station])
-        print(f"  [{station}] filled {nan_mask.sum()} NaN")
+        logger.info("[%s] filled %d NaN", station, nan_mask.sum())
     return df
 
 
