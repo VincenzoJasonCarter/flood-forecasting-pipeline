@@ -1,5 +1,6 @@
 """Pure helpers: grid cells, column naming, API responses -> wide frame, merging."""
 
+import logging
 import re
 from datetime import date, timedelta
 
@@ -7,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from .config import COLUMN_PREFIX
+
+logger = logging.getLogger(__name__)
 
 
 def candidate_points(lat_min, lat_max, lon_min, lon_max, step):
@@ -91,6 +94,6 @@ def merge_incremental(existing, new, start):
     cut = pd.Timestamp(start)
     extra = [c for c in new.columns if c not in existing.columns]
     if extra:
-        print(f"Peringatan: kolom tidak ada di output lama, dilewati: {extra}")
+        logger.warning("Kolom tidak ada di output lama, dilewati: %s", extra)
     new = new.reindex(columns=existing.columns)
     return pd.concat([existing[existing.index < cut], new[new.index >= cut]])

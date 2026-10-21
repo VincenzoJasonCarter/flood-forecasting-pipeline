@@ -5,11 +5,13 @@
 #
 # Prasyarat: `gcloud auth login`, SIBANJIR_TOKEN di .env, backfill awal sudah ada
 # di BigQuery. Dijalankan dari root repo:  bash deploy/setup_cloud_run.sh
+# PROJECT / REGION bisa di-override lewat env, mis. PROJECT=my-staging bash deploy/setup_cloud_run.sh
+# (project BigQuery yang dibaca job ikut diset lewat GCP_PROJECT di bawah).
 # Aman dijalankan ulang; untuk deploy ulang image saja, cukup langkah build + job.
 set -euo pipefail
 
-PROJECT=thesis-506605
-REGION=asia-southeast2
+PROJECT=${PROJECT:-thesis-506605}
+REGION=${REGION:-asia-southeast2}
 REPO=flood
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/$REPO/pipeline:latest
 JOB=flood-hourly
@@ -41,7 +43,7 @@ for role in roles/bigquery.dataEditor roles/bigquery.jobUser roles/run.invoker; 
 done
 
 echo "== Secret $SECRET (dari .env)"
-TOKEN=$(grep '^SIBANJIR_TOKEN=' .env | cut -d= -f2- | tr -d '"\r')
+TOKEN=$(grep '^SIBANJIR_TOKEN=' .env | cut -d= -f2- | tr -d '"\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 if gc secrets describe "$SECRET" >/dev/null 2>&1; then
     printf %s "$TOKEN" | gc secrets versions add "$SECRET" --data-file=-
 else
@@ -51,12 +53,14 @@ gc secrets add-iam-policy-binding "$SECRET" --member "serviceAccount:$SA" \
     --role roles/secretmanager.secretAccessor >/dev/null
 
 echo "== Cloud Run Job $JOB"
+# Path skrip relatif ke WORKDIR /app: path absolut diubah Git Bash (Windows)
+# jadi C:/Program Files/Git/app/...
 # TZ: date.today() (tanggal akhir crawl) ikut WIB, bukan UTC — kalau UTC, data
 # 00:00-07:00 WIB baru ter-crawl setelah jam 07:00.
 gc run jobs deploy "$JOB" --region "$REGION" --image "$IMAGE" --service-account "$SA" \
-    --command sh --args /app/deploy/hourly_job.sh \
+    --command sh --args deploy/hourly_job.sh \
     --set-secrets "SIBANJIR_TOKEN=$SECRET:latest" \
-    --set-env-vars "RUN_PREDICT=$RUN_PREDICT,TZ=Asia/Jakarta,PYTHONUNBUFFERED=1" \
+    --set-env-vars "RUN_PREDICT=$RUN_PREDICT,TZ=Asia/Jakarta,PYTHONUNBUFFERED=1,GCP_PROJECT=$PROJECT" \
     --cpu 1 --memory 2Gi --task-timeout 30m --max-retries 0
 
 echo "== Cloud Scheduler"

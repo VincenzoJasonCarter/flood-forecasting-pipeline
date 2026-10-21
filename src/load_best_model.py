@@ -15,6 +15,7 @@ Atau import langsung:
 
 import argparse
 
+from logging_setup import configure_logging
 from prediction import load_best_model
 
 
@@ -23,6 +24,7 @@ def main():
     parser.add_argument("--station", default=None, help="Filter satu stasiun saja.")
     parser.add_argument("--horizon", type=int, default=None, help="Filter satu horizon saja (jam).")
     args = parser.parse_args()
+    configure_logging()
 
     models, model_name = load_best_model(station=args.station, horizon=args.horizon)
 

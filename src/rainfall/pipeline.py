@@ -1,5 +1,6 @@
 """Full rainfall pipeline: discover grid cells, fetch hourly precipitation, merge, save."""
 
+import logging
 from datetime import date, timedelta
 
 import pandas as pd
@@ -9,6 +10,8 @@ from .client import RateLimited, Throttle, discover_cells, fetch_range, total_we
 from .config import BBOX, DEFAULT_OUTPUT_PATH, OVERLAP_DAYS, PROBE_STEP, RAINFALL_TABLE, START_DATE, TIMEZONE
 from .frames import candidate_points, drop_future, merge_incremental, parse_cell_column
 from .storage import get_client, load_parquet, load_rainfall, save_parquet, save_rainfall
+
+logger = logging.getLogger(__name__)
 
 
 def run(start=START_DATE, end=None, output_path=None, write_bq=False, incremental=False,
@@ -38,24 +41,24 @@ def run(start=START_DATE, end=None, output_path=None, write_bq=False, incrementa
         existing = load_rainfall(client, table_id) if write_bq else load_parquet(output_path)
         source = table_id if write_bq else output_path
         if existing is None:
-            print(f"Incremental: {source} belum ada, full fetch dari {start}")
+            logger.info("Incremental: %s belum ada, full fetch dari %s", source, start)
         else:
             start = (existing.index.max().date() - timedelta(days=overlap_days)).isoformat()
             cells = [parse_cell_column(c) for c in existing.columns]
-            print(f"Incremental: output lama s/d {existing.index.max()} ({len(cells)} sel), ambil ulang dari {start}")
+            logger.info("Incremental: output lama s/d %s (%d sel), ambil ulang dari %s", existing.index.max(), len(cells), start)
 
     frames, stopped, error = [], None, None
     throttle = Throttle()
     with requests.Session() as session:
         if cells is None:
             cells = discover_cells(session, throttle, candidate_points(*BBOX, PROBE_STEP))
-            print(f"Grid: {len(cells)} sel di kotak lat {BBOX[0]}..{BBOX[1]}, lon {BBOX[2]}..{BBOX[3]}")
-        print(f"Perkiraan bobot kuota: {total_weight(len(cells), start, end):,.0f} "
-              f"(kuota gratis 5.000/jam, 10.000/hari)")
+            logger.info("Grid: %d sel di kotak lat %s..%s, lon %s..%s", len(cells), *BBOX)
+        logger.info("Perkiraan bobot kuota: %s (kuota gratis 5.000/jam, 10.000/hari)",
+                    f"{total_weight(len(cells), start, end):,.0f}")
         try:
             for frame in fetch_range(session, throttle, cells, start, end):
                 frames.append(frame)
-                print(f"  fetched {frame.index[0]} -> {frame.index[-1]}")
+                logger.info("fetched %s -> %s", frame.index[0], frame.index[-1])
         except (RateLimited, KeyboardInterrupt) as e:
             if not frames:
                 raise
@@ -68,15 +71,15 @@ def run(start=START_DATE, end=None, output_path=None, write_bq=False, incrementa
     df = drop_future(pd.concat(frames), now)
     if existing is not None:
         df = merge_incremental(existing, df, start)
-    print(f"Rainfall: {df.shape} | {df.index[0]} -> {df.index[-1]} | NaN: {int(df.isna().sum().sum()):,}")
+    logger.info("Rainfall: %s | %s -> %s | NaN: %s", df.shape, df.index[0], df.index[-1], f"{int(df.isna().sum().sum()):,}")
 
     save_parquet(df, output_path)
     if write_bq:
         save_rainfall(client, df, table_id)
-        print(f"Saved: {table_id} -> BigQuery")
+        logger.info("Saved: %s -> BigQuery", table_id)
     if stopped:
-        print(f"\nBerhenti sebelum selesai ({stopped}). Data tersimpan s/d {df.index[-1]}; "
-              f"lanjutkan nanti dengan --incremental.")
+        logger.warning("Berhenti sebelum selesai (%s). Data tersimpan s/d %s; lanjutkan nanti dengan --incremental.",
+                       stopped, df.index[-1])
     if error is not None:
         raise error
     return df

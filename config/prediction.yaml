@@ -3,9 +3,22 @@ project: thesis-506605
 dataset: tables
 location: US
 
-# Granularity model yang sedang dipakai: hourly | daily. Menentukan LOOKBACK,
-# HORIZONS, dan satuan horizon (jam/hari) di src/prediction/config.py.
+# Granularity model yang sedang dipakai: hourly | daily. Memilih blok `model`
+# di bawah (LOOKBACK, HORIZONS, satuan horizon).
 granularity: hourly
+
+# Per granularity: panjang jendela input (lookback), horizon yang dilatih, dan
+# durasi satu langkah waktu (forecast_time = as_of + h * step). Harus selaras
+# dengan hyperparameter training (notebooks_training/02-04).
+model:
+  hourly:
+    lookback: 72
+    horizons: [1, 3, 12]
+    step: {hours: 1}
+  daily:
+    lookback: 3
+    horizons: [1, 3, 7]
+    step: {days: 1}
 
 # Tabel harus satu granularity dengan `granularity` di atas. Model hourly lama
 # ada di tabel tanpa suffix (station_features, preprocessing_metadata,

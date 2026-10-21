@@ -6,9 +6,11 @@ and selection results already live in BigQuery), this pipeline pulls the
 freshest raw sensor data, preprocesses it the same way the training data was
 prepared, runs inference, and returns the forecast in real units (cm).
 
-Training is not part of this repo — the four candidate models don't need
-retraining, so only the serving path (preprocessing + inference) is kept
-here.
+The training code itself lives in the Colab notebooks under
+[`notebooks_training/`](notebooks_training/) — the four candidate models don't
+need retraining, so only the serving path (preprocessing + inference) is
+packaged as the `src/` pipeline. How the candidates compared is summarised in
+[Training results](#training-results).
 
 ## Project layout
 
@@ -20,12 +22,17 @@ here.
 │   ├── raw_preprocessing.yaml # API endpoint + BigQuery table names used by src/raw_preprocessing
 │   ├── rainfall.yaml        # Open-Meteo model, grid bounding box + table name used by src/rainfall
 │   ├── preprocessing.yaml   # BigQuery project/dataset/table names used by src/preprocessing
-│   └── prediction.yaml      # BigQuery project/dataset/table names used by src/prediction
+│   └── prediction.yaml      # BigQuery project/dataset/table names + lookback/horizons used by src/prediction
+├── queries/                 # every BigQuery SQL statement, as .sql files (common/, prediction/)
 ├── docs/
-│   └── architecture.md      # module-level call flow, pure vs. I/O boundaries
+│   ├── architecture.md      # module-level call flow, pure vs. I/O boundaries
+│   └── images/              # figures embedded in this README (exported from notebook 06)
 ├── tests/                   # unit tests for pure logic (no BigQuery access)
 └── src/
-    ├── settings.py          # loads a module's YAML from config/
+    ├── settings.py          # loads a module's YAML from config/ (+ GCP_PROJECT/BQ_DATASET/BQ_LOCATION overrides)
+    ├── query_loader.py      # reads queries/*.sql, validates + fills table/column identifiers
+    ├── bq.py                # shared BigQuery helpers: client factory, run_query, naive datetime index
+    ├── logging_setup.py     # logging config for the CLIs (JSON with severity on Cloud Run)
     ├── raw_preprocessing/   # API crawl -> station_features_{hourly,daily} (water level + calendar features)
     ├── rainfall/            # Open-Meteo -> rainfall_hourly (rain per grid cell) + per-station cell ranking
     ├── preprocessing/       # one-time setup: station_features -> train/val/test, scalers, metadata
@@ -62,11 +69,32 @@ no-op outside Google Colab — it only handles the Colab-specific auth flow.)
 
 ## Configuration
 
-`config/raw_preprocessing.yaml`, `config/preprocessing.yaml` and
+`config/raw_preprocessing.yaml`, `config/rainfall.yaml`,
+`config/preprocessing.yaml` and
 `config/prediction.yaml` each declare their own `project`, `dataset`,
 `location`, and the BigQuery table names they read or write. They're separate files because preprocessing and prediction are
 independently runnable — pointing either one at a different project/dataset
 (e.g. a staging environment) doesn't require touching the other.
+
+### Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `GCP_PROJECT`, `BQ_DATASET`, `BQ_LOCATION` | Override `project` / `dataset` / `location` in every `config/*.yaml`, e.g. to point a run at a staging dataset without editing files. |
+| `SIBANJIR_TOKEN` | API token for `raw_preprocessing` (see `.env.example`). |
+| `LOG_LEVEL` | `DEBUG` / `INFO` (default) / `WARNING` / `ERROR`. |
+| `LOG_FORMAT` | `json` or `text`. Defaults to `json` on Cloud Run (so Cloud Logging picks up `severity`), `text` elsewhere. |
+
+### SQL queries
+
+All BigQuery SQL lives in [`queries/`](queries/) as `.sql` files, not as
+strings in Python. Values (`@station`, `@horizon`, `@since`) are query
+parameters; optional filters are written as `@x IS NULL OR col = @x` so each
+file is one fixed statement. Only table and column names, which BigQuery can't
+parameterize, are substituted into `{table}` / `{columns}` — by
+`src/query_loader.py`, which rejects anything that isn't a plain
+`project.dataset.table` / column name. To change a query, edit the `.sql`
+file; to add one, drop a file in and call `bq.run_query(client, "folder/name", table=...)`.
 
 ## Usage
 
@@ -143,8 +171,8 @@ rainfall steps above first. This is the only preprocessing path — notebook
 None of these touch the unsuffixed tables (`station_features`,
 `preprocessing_metadata`, `preprocessing_scalers`) that hold the older hourly
 models. `config/prediction.yaml` sets the `granularity` that `prediction`
-serves (currently `hourly`) and the matching table set; `LOOKBACK`/`HORIZONS`
-for each granularity live in `src/prediction/config.py`. Run `make help` for
+serves (currently `hourly`) and the matching table set; `lookback`/`horizons`
+for each granularity live under `model:` in the same file. Run `make help` for
 every target.
 
 ### Scheduled updates (Cloud Run Job)
@@ -166,11 +194,72 @@ bash deploy/setup_cloud_run.sh
 gcloud run jobs execute flood-hourly --region asia-southeast2 --project thesis-506605 --wait
 ```
 
-Run the test suite (unit tests only, no BigQuery access needed):
+Run the test suite (unit tests only, no BigQuery access needed; the same
+command runs in CI on every push and pull request):
 
 ```
 uv run pytest
 ```
+
+Diagnostics go through `logging` (configured by each CLI, see `LOG_LEVEL` /
+`LOG_FORMAT` above). Only command results — the forecast table from
+`predict.py`, the ranking from `rainfall.analysis` — are printed to stdout.
+When calling `run()` from a notebook, call
+`logging_setup.configure_logging()` first to see progress output.
+
+## Training results
+
+Comparison of the four candidates across 8 stations × 3 horizons (1, 3, 12 h
+ahead), read from `gds_datasource.model_comparation_metric_hourly` (the table
+behind the Looker Studio dashboard). The full report, with every plot and the
+complete per-station table, is
+[`notebooks_training/06_Training_Report.ipynb`](notebooks_training/06_Training_Report.ipynb).
+
+NSE: higher is better, 1 is perfect, 0 is no better than predicting the mean,
+below 0 is worse than that. RMSE / MAE / sMAPE: lower is better. RMSE and MAE
+are computed on the MinMax-scaled water level (0–1), not in cm.
+
+| Model | Mean NSE | Median NSE | RMSE | MAE | sMAPE (%) | Best in (of 24) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prophet | -0.781 | -0.218 | 0.1111 | 0.0909 | 53.3 | 0 |
+| LSTM | 0.728 | 0.842 | 0.0426 | 0.0239 | 12.0 | 3 |
+| **GRU** | **0.741** | 0.841 | **0.0417** | **0.0237** | **11.8** | **18** |
+| TFT | 0.727 | 0.825 | 0.0432 | 0.0242 | 12.0 | 3 |
+
+Mean NSE by horizon:
+
+| Model | 1 h | 3 h | 12 h |
+| --- | ---: | ---: | ---: |
+| Prophet | -0.673 | -0.718 | -0.954 |
+| LSTM | 0.935 | 0.810 | 0.438 |
+| GRU | 0.936 | 0.819 | 0.467 |
+| TFT | 0.928 | 0.804 | 0.448 |
+
+What the numbers say:
+
+- **GRU is the best by a small margin.** LSTM, GRU and TFT are within about
+  0.015 mean NSE of each other, so the choice between them is not decisive;
+  GRU does win the most station × horizon combinations (18 of 24).
+- **Prophet is far behind** — its NSE is negative at half the stations
+  (Pos Angke Hulu, Pos Cipinang Hulu, Pos Depok, Waduk Pluit), and about -6 at
+  Waduk Pluit at every horizon, which pulls its mean far below its median.
+- **All three neural models lose roughly half their NSE going from 1 h to
+  12 h.** The hardest stations at 12 h are Pos Cipinang Hulu, Pos Krukut Hulu
+  and Waduk Pluit.
+
+![Mean metrics per model](docs/images/training_report/01_mean_metrics.png)
+
+![Metrics versus forecast horizon](docs/images/training_report/02_metrics_vs_horizon.png)
+
+![NSE per station and model, by horizon](docs/images/training_report/04_nse_heatmap.png)
+
+![Spread of NSE per model and number of wins](docs/images/training_report/05_consistency.png)
+
+Source-table caveat: it has no column saying whether the metrics come from the
+validation or the test split, so the figures above are reported as-is.
+
+To refresh after retraining, re-run notebook 06 and re-export its figures to
+`docs/images/training_report/`; the tables above are copied from its output.
 
 ## How it fits together
 
@@ -196,7 +285,8 @@ uv run pytest
    features — and writes weights to `{model}_weights_<g>` plus
    validation/test metrics; `USE_RAINFALL = False` trains the no-rain
    ablation as `{model}_norain`. Notebook 05 writes the winner to
-   `model_selection_<g>`.
+   `model_selection_<g>`; notebook 06 reports the comparison (see
+   [Training results](#training-results)).
 4. `prediction` reads `model_selection` to pick the winning model, loads its
    weights, pulls the latest data from the tables in `config/prediction.yaml`
    (currently the `_hourly` ones, including `rainfall_hourly`), rebuilds the

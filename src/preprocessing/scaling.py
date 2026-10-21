@@ -1,8 +1,11 @@
 """Per-station MinMax scaling and BigQuery-safe column naming."""
 
+import logging
 import re
 
 from sklearn.preprocessing import MinMaxScaler
+
+logger = logging.getLogger(__name__)
 
 
 def fit_scalers(df_train_raw, station_cols):
@@ -12,7 +15,7 @@ def fit_scalers(df_train_raw, station_cols):
         valid_vals = df_train_raw[station].dropna().values.reshape(-1, 1)
         scaler.fit(valid_vals)
         scalers[station] = scaler
-        print(f"  [{station}] min={scaler.data_min_[0]:.1f} cm, max={scaler.data_max_[0]:.1f} cm")
+        logger.info("[%s] min=%.1f cm, max=%.1f cm", station, scaler.data_min_[0], scaler.data_max_[0])
     return scalers
 
 
