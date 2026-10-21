@@ -24,7 +24,6 @@ packaged as the `src/` pipeline. How the candidates compared is summarised in
 │   ├── preprocessing.yaml   # BigQuery project/dataset/table names used by src/preprocessing
 │   └── prediction.yaml      # BigQuery project/dataset/table names + lookback/horizons used by src/prediction
 ├── queries/                 # every BigQuery SQL statement, as .sql files (common/, prediction/)
-├── notebooks_training/      # Colab notebooks: preprocessing check, model training (01-04), selection (05), training report (06)
 ├── docs/
 │   ├── architecture.md      # module-level call flow, pure vs. I/O boundaries
 │   └── images/              # figures embedded in this README (exported from notebook 06)
