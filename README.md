@@ -6,9 +6,11 @@ and selection results already live in BigQuery), this pipeline pulls the
 freshest raw sensor data, preprocesses it the same way the training data was
 prepared, runs inference, and returns the forecast in real units (cm).
 
-Training is not part of this repo — the four candidate models don't need
-retraining, so only the serving path (preprocessing + inference) is kept
-here.
+The training code itself lives in the Colab notebooks under
+[`notebooks_training/`](notebooks_training/) — the four candidate models don't
+need retraining, so only the serving path (preprocessing + inference) is
+packaged as the `src/` pipeline. How the candidates compared is summarised in
+[Training results](#training-results).
 
 ## Project layout
 
@@ -22,8 +24,10 @@ here.
 │   ├── preprocessing.yaml   # BigQuery project/dataset/table names used by src/preprocessing
 │   └── prediction.yaml      # BigQuery project/dataset/table names + lookback/horizons used by src/prediction
 ├── queries/                 # every BigQuery SQL statement, as .sql files (common/, prediction/)
+├── notebooks_training/      # Colab notebooks: preprocessing check, model training (01-04), selection (05), training report (06)
 ├── docs/
-│   └── architecture.md      # module-level call flow, pure vs. I/O boundaries
+│   ├── architecture.md      # module-level call flow, pure vs. I/O boundaries
+│   └── images/              # figures embedded in this README (exported from notebook 06)
 ├── tests/                   # unit tests for pure logic (no BigQuery access)
 └── src/
     ├── settings.py          # loads a module's YAML from config/ (+ GCP_PROJECT/BQ_DATASET/BQ_LOCATION overrides)
@@ -204,6 +208,60 @@ Diagnostics go through `logging` (configured by each CLI, see `LOG_LEVEL` /
 When calling `run()` from a notebook, call
 `logging_setup.configure_logging()` first to see progress output.
 
+## Training results
+
+Comparison of the four candidates across 8 stations × 3 horizons (1, 3, 12 h
+ahead), read from `gds_datasource.model_comparation_metric_hourly` (the table
+behind the Looker Studio dashboard). The full report, with every plot and the
+complete per-station table, is
+[`notebooks_training/06_Training_Report.ipynb`](notebooks_training/06_Training_Report.ipynb).
+
+NSE: higher is better, 1 is perfect, 0 is no better than predicting the mean,
+below 0 is worse than that. RMSE / MAE / sMAPE: lower is better. RMSE and MAE
+are computed on the MinMax-scaled water level (0–1), not in cm.
+
+| Model | Mean NSE | Median NSE | RMSE | MAE | sMAPE (%) | Best in (of 24) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prophet | -0.781 | -0.218 | 0.1111 | 0.0909 | 53.3 | 0 |
+| LSTM | 0.728 | 0.842 | 0.0426 | 0.0239 | 12.0 | 3 |
+| **GRU** | **0.741** | 0.841 | **0.0417** | **0.0237** | **11.8** | **18** |
+| TFT | 0.727 | 0.825 | 0.0432 | 0.0242 | 12.0 | 3 |
+
+Mean NSE by horizon:
+
+| Model | 1 h | 3 h | 12 h |
+| --- | ---: | ---: | ---: |
+| Prophet | -0.673 | -0.718 | -0.954 |
+| LSTM | 0.935 | 0.810 | 0.438 |
+| GRU | 0.936 | 0.819 | 0.467 |
+| TFT | 0.928 | 0.804 | 0.448 |
+
+What the numbers say:
+
+- **GRU is the best by a small margin.** LSTM, GRU and TFT are within about
+  0.015 mean NSE of each other, so the choice between them is not decisive;
+  GRU does win the most station × horizon combinations (18 of 24).
+- **Prophet is far behind** — its NSE is negative at half the stations
+  (Pos Angke Hulu, Pos Cipinang Hulu, Pos Depok, Waduk Pluit), and about -6 at
+  Waduk Pluit at every horizon, which pulls its mean far below its median.
+- **All three neural models lose roughly half their NSE going from 1 h to
+  12 h.** The hardest stations at 12 h are Pos Cipinang Hulu, Pos Krukut Hulu
+  and Waduk Pluit.
+
+![Mean metrics per model](docs/images/training_report/01_mean_metrics.png)
+
+![Metrics versus forecast horizon](docs/images/training_report/02_metrics_vs_horizon.png)
+
+![NSE per station and model, by horizon](docs/images/training_report/04_nse_heatmap.png)
+
+![Spread of NSE per model and number of wins](docs/images/training_report/05_consistency.png)
+
+Source-table caveat: it has no column saying whether the metrics come from the
+validation or the test split, so the figures above are reported as-is.
+
+To refresh after retraining, re-run notebook 06 and re-export its figures to
+`docs/images/training_report/`; the tables above are copied from its output.
+
 ## How it fits together
 
 0. `raw_preprocessing` crawls hourly water-level reports from the
@@ -228,7 +286,8 @@ When calling `run()` from a notebook, call
    features — and writes weights to `{model}_weights_<g>` plus
    validation/test metrics; `USE_RAINFALL = False` trains the no-rain
    ablation as `{model}_norain`. Notebook 05 writes the winner to
-   `model_selection_<g>`.
+   `model_selection_<g>`; notebook 06 reports the comparison (see
+   [Training results](#training-results)).
 4. `prediction` reads `model_selection` to pick the winning model, loads its
    weights, pulls the latest data from the tables in `config/prediction.yaml`
    (currently the `_hourly` ones, including `rainfall_hourly`), rebuilds the
