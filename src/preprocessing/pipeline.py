@@ -1,5 +1,7 @@
 """Full preprocessing pipeline, chaining every step of the package together."""
 
+import logging
+
 import pandas as pd
 
 from .bigquery_io import authenticate, get_client, load_rainfall_cells, load_station_features
@@ -12,6 +14,8 @@ from .scaling import apply_scalers, fit_scalers, to_bq_column
 from .splitting import get_station_cols, split_data
 from .storage import save_metadata, save_preprocessed_data, save_scalers
 
+logger = logging.getLogger(__name__)
+
 
 def _rain_cells(station_cols):
     """Sel hujan per stasiun dari file ranking (hasil `make rainfall-rank`)."""
@@ -22,7 +26,7 @@ def _rain_cells(station_cols):
     cells = top_cells_by_station(pd.read_csv(RAIN_RANKING_PATH), RAIN_TOP_CELLS)
     skipped = [s for s in station_cols if s not in cells]
     if skipped:
-        print(f"Peringatan: tidak ada ranking hujan untuk {skipped}; stasiun ini tanpa fitur hujan.")
+        logger.warning("Tidak ada ranking hujan untuk %s; stasiun ini tanpa fitur hujan.", skipped)
     return {s: cells[s] for s in station_cols if s in cells}
 
 
@@ -34,21 +38,21 @@ def run(granularity=GRANULARITY):
 
     df_fe = load_station_features(client, table_id("station_features", granularity))
     station_cols = get_station_cols(df_fe)
-    print(f"Loaded: {df_fe.shape} | {df_fe.index[0].date()} → {df_fe.index[-1].date()}")
-    print(f"Stations : {station_cols}")
-    print(f"NaN total: {df_fe[station_cols].isna().sum().sum():,}")
+    logger.info("Loaded: %s | %s → %s", df_fe.shape, df_fe.index[0].date(), df_fe.index[-1].date())
+    logger.info("Stations : %s", station_cols)
+    logger.info("NaN total: %s", f"{df_fe[station_cols].isna().sum().sum():,}")
 
     df_train_raw, df_val_raw, df_test_raw = split_data(df_fe)
     n = len(df_fe)
-    print(f"Train : {df_train_raw.index[0].date()} → {df_train_raw.index[-1].date()} ({len(df_train_raw):,} rows, {len(df_train_raw)/n:.1%})")
-    print(f"Val   : {df_val_raw.index[0].date()} → {df_val_raw.index[-1].date()} ({len(df_val_raw):,} rows, {len(df_val_raw)/n:.1%})")
-    print(f"Test  : {df_test_raw.index[0].date()} → {df_test_raw.index[-1].date()} ({len(df_test_raw):,} rows, {len(df_test_raw)/n:.1%})")
+    for label, part in (("Train", df_train_raw), ("Val", df_val_raw), ("Test", df_test_raw)):
+        logger.info("%-5s : %s → %s (%s rows, %.1f%%)", label, part.index[0].date(), part.index[-1].date(),
+                    f"{len(part):,}", 100 * len(part) / n)
 
     # Untuk data daily index.hour selalu 0, jadi ini jadi median keseluruhan per stasiun.
     hourly_medians = compute_hourly_medians(df_train_raw, station_cols)
-    print("Hourly medians per stasiun (cm):")
+    logger.info("Hourly medians per stasiun (cm):")
     for station, med in hourly_medians.items():
-        print(f"  {station}: min={med.min():.1f} cm, max={med.max():.1f} cm")
+        logger.info("  %s: min=%.1f cm, max=%.1f cm", station, med.min(), med.max())
 
     df_train_raw = fill_nan_hourly_median(df_train_raw, hourly_medians, station_cols)
     df_val_raw = fill_nan_hourly_median(df_val_raw, hourly_medians, station_cols)
@@ -56,16 +60,15 @@ def run(granularity=GRANULARITY):
     total_nan = (df_train_raw[station_cols].isna().sum().sum() +
                  df_val_raw[station_cols].isna().sum().sum() +
                  df_test_raw[station_cols].isna().sum().sum())
-    print(f"\nTotal NaN tersisa: {total_nan}")
+    logger.info("Total NaN tersisa: %s", total_nan)
 
     scalers = fit_scalers(df_train_raw, station_cols)
 
     df_train = encode_calendar(apply_scalers(df_train_raw, scalers, station_cols))
     df_val = encode_calendar(apply_scalers(df_val_raw, scalers, station_cols))
     df_test = encode_calendar(apply_scalers(df_test_raw, scalers, station_cols))
-    print(f"Train range: {df_train[station_cols].min().min():.4f} – {df_train[station_cols].max().max():.4f}")
-    print(f"Val   range: {df_val[station_cols].min().min():.4f} – {df_val[station_cols].max().max():.4f}")
-    print(f"Test  range: {df_test[station_cols].min().min():.4f} – {df_test[station_cols].max().max():.4f}")
+    for label, part in (("Train", df_train), ("Val", df_val), ("Test", df_test)):
+        logger.info("%-5s range: %.4f – %.4f", label, part[station_cols].min().min(), part[station_cols].max().max())
 
     # Nama stasiun (mis. "Bendung Katulampa") mengandung spasi yang tidak valid
     # sebagai nama kolom BigQuery, jadi disanitasi dulu (column_map) dan
@@ -75,12 +78,12 @@ def run(granularity=GRANULARITY):
 
     rain_cells, rain_cols = {}, {}
     if RAIN_ENABLED and granularity != "hourly":
-        print("Fitur hujan hanya untuk granularity hourly; dilewati.")
+        logger.info("Fitur hujan hanya untuk granularity hourly; dilewati.")
     elif RAIN_ENABLED:
         rain_cells = _rain_cells(station_cols)
         all_cells = sorted({c for cells in rain_cells.values() for c in cells})
         rain = load_rainfall_cells(client, RAIN_TABLE, all_cells)
-        print(f"\nHujan: {len(all_cells)} sel dari {RAIN_TABLE} | {rain.index[0]} → {rain.index[-1]}")
+        logger.info("Hujan: %d sel dari %s | %s → %s", len(all_cells), RAIN_TABLE, rain.index[0], rain.index[-1])
         # Dihitung di seluruh histori sekaligus, supaya jendela akumulasi di
         # awal val/test tetap memakai jam-jam terakhir periode sebelumnya.
         features, rain_cols = rain_features(rain, rain_cells, RAIN_ACCUM_HOURS, column_map, df_fe.index)
@@ -90,7 +93,7 @@ def run(granularity=GRANULARITY):
         df_train, df_val, df_test = (d.join(features) for d in (df_train, df_val, df_test))
         scalers.update(rain_scalers)
         for station, cols in rain_cols.items():
-            print(f"  {station}: {len(rain_cells[station])} sel -> {cols}")
+            logger.info("  %s: %d sel -> %s", station, len(rain_cells[station]), cols)
 
     save_preprocessed_data(client, df_train, df_val, df_test, column_map,
                            table_id("preprocessed_data", granularity))
@@ -101,4 +104,4 @@ def run(granularity=GRANULARITY):
     save_metadata(client, metadata, saved_at, table_id("metadata", granularity))
     save_scalers(client, scalers, saved_at, table_id("scalers", granularity))
 
-    print(f"Saved ({granularity}): preprocessed_data, metadata, scalers -> BigQuery")
+    logger.info("Saved (%s): preprocessed_data, metadata, scalers -> BigQuery", granularity)

@@ -1,5 +1,6 @@
 """HTTP crawler for the sisteminformasibanjir observation-post reports API."""
 
+import logging
 import os
 import time
 from datetime import date, timedelta
@@ -7,6 +8,8 @@ from datetime import date, timedelta
 import requests
 
 from .config import API_BASE_URL, API_TOKEN_ENV
+
+logger = logging.getLogger(__name__)
 
 
 def get_token():
@@ -35,7 +38,7 @@ def fetch_day(session, d, token, max_retries=5):
             r.raise_for_status()
             return r.json().get("data", [])
         except (requests.RequestException, ValueError) as e:
-            print(f"  retry {d}: {str(e).replace(token, '***')}")  # pesan InvalidHeader memuat token
+            logger.warning("retry %s: %s", d, str(e).replace(token, "***"))  # pesan InvalidHeader memuat token
             time.sleep(2 ** attempt)
     return None
 
@@ -48,7 +51,7 @@ def crawl_range(start, end, token):
     with requests.Session() as session:
         while cur <= last:
             d = cur.isoformat()
-            print("fetch", d)
+            logger.info("fetch %s", d)
             rows = fetch_day(session, d, token)
 
             if not rows:

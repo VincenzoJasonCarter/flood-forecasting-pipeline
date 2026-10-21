@@ -5,11 +5,13 @@
 #
 # Prasyarat: `gcloud auth login`, SIBANJIR_TOKEN di .env, backfill awal sudah ada
 # di BigQuery. Dijalankan dari root repo:  bash deploy/setup_cloud_run.sh
+# PROJECT / REGION bisa di-override lewat env, mis. PROJECT=my-staging bash deploy/setup_cloud_run.sh
+# (project BigQuery yang dibaca job ikut diset lewat GCP_PROJECT di bawah).
 # Aman dijalankan ulang; untuk deploy ulang image saja, cukup langkah build + job.
 set -euo pipefail
 
-PROJECT=thesis-506605
-REGION=asia-southeast2
+PROJECT=${PROJECT:-thesis-506605}
+REGION=${REGION:-asia-southeast2}
 REPO=flood
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/$REPO/pipeline:latest
 JOB=flood-hourly
@@ -58,7 +60,7 @@ echo "== Cloud Run Job $JOB"
 gc run jobs deploy "$JOB" --region "$REGION" --image "$IMAGE" --service-account "$SA" \
     --command sh --args deploy/hourly_job.sh \
     --set-secrets "SIBANJIR_TOKEN=$SECRET:latest" \
-    --set-env-vars "RUN_PREDICT=$RUN_PREDICT,TZ=Asia/Jakarta,PYTHONUNBUFFERED=1" \
+    --set-env-vars "RUN_PREDICT=$RUN_PREDICT,TZ=Asia/Jakarta,PYTHONUNBUFFERED=1,GCP_PROJECT=$PROJECT" \
     --cpu 1 --memory 2Gi --task-timeout 30m --max-retries 0
 
 echo "== Cloud Scheduler"

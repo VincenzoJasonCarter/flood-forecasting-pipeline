@@ -8,6 +8,8 @@
 !main.py
 !config/
 !config/**
+!queries/
+!queries/**
 !src/
 !src/**
 !deploy/
