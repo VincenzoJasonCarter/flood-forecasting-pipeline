@@ -34,3 +34,8 @@ artifacts/
 
 # Training notebooks
 notebooks_training/
+
+# Agent skills installed via `npx skills add`
+.agents/
+.claude/skills/
+skills-lock.json
