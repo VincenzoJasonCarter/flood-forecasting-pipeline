@@ -19,7 +19,7 @@ SA_NAME=flood-hourly
 SA=$SA_NAME@$PROJECT.iam.gserviceaccount.com
 SECRET=sibanjir-token
 SCHEDULE="15 * * * *"   # menit ke-15 tiap jam, Asia/Jakarta
-RUN_PREDICT=false       # true setelah model_selection_hourly + bobot hourly ada
+RUN_PREDICT=true        # true setelah model_selection_hourly + bobot hourly ada (huruf kecil: hourly_job.sh membandingkan persis)
 
 gc() { gcloud --project "$PROJECT" --quiet "$@"; }
 
