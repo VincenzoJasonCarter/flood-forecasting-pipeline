@@ -14,8 +14,10 @@ COPY deploy/hourly_job.sh ./deploy/
 
 ENV PATH="/app/.venv/bin:${PATH}"     PYTHONUNBUFFERED=1
 
-# Jalan sebagai user biasa, bukan root.
-RUN useradd --system --no-create-home --uid 10001 app
+# Jalan sebagai user biasa, bukan root. artifacts/ harus bisa ditulis user ini:
+# raw_preprocessing dan rainfall selalu menyimpan parquet lokal sebelum --write-bq.
+RUN useradd --system --no-create-home --uid 10001 app \
+    && mkdir artifacts && chown app artifacts
 USER app
 
 # GCP credentials are provided at runtime (mounted service-account key via
