@@ -29,7 +29,10 @@ def get_best_model_name(client):
             f"{MODEL_SELECTION_TABLE} kosong — belum ada hasil model selection tersimpan."
         )
     best = row.iloc[0]
-    logger.info("Best model: '%s' (%s=%.4f)", best["best_model"], best["selection_metric"], best["mean_value"])
+    # tabel baru menyimpan median_value, tabel lama mean_value; nilainya hanya untuk log
+    stat = next((c for c in ("median_value", "mean_value") if c in best.index), None)
+    logger.info("Best model: '%s' (%s %s=%s)", best["best_model"], best["selection_metric"],
+                stat or "value", best[stat] if stat else "?")
     return best["best_model"]
 
 
