@@ -1,0 +1,63 @@
+# Konfigurasi dashboard (src/dashboard, `make dashboard`). Project, dataset, tabel
+# dan granularity ikut config/prediction.yaml: dashboard membaca forecast_output
+# dan station_features dari tabel yang sama dengan yang ditulis `make predict-bq`.
+
+# Berapa langkah waktu TMA aktual yang ditampilkan di grafik (jam/hari sesuai granularity).
+history_steps: 72
+
+# Dashboard membaca ulang BigQuery tiap sekian detik.
+refresh_seconds: 300
+
+# Pos dianggap "naik" kalau puncak forecast melebihi TMA aktual terakhir sebanyak ini (cm).
+# Resolusi sensor 10 cm, jadi 10 = satu langkah ukur.
+rise_threshold_cm: 10
+
+# Laporan unduhan (tombol "Unduh laporan"). Pos masuk daftar "perlu perhatian" kalau statusnya
+# diprakirakan naik, sudah di atas Normal, puncak forecast naik >= rise_threshold_cm, TMA sudah naik
+# >= rise_threshold_cm dalam trend_steps langkah terakhir, sisa ke batas siaga berikutnya <= near_limit_cm,
+# hujan 24 jam di sel model >= heavy_rain_mm, atau pos hulu di aliran yang sama sedang naik.
+laporan:
+  trend_steps: 6       # langkah (jam/hari sesuai granularity) untuk tren TMA
+  near_limit_cm: 30    # "dekat batas": tiga langkah sensor 10 cm
+  heavy_rain_mm: 50    # BMKG: hujan lebat 50-100 mm/hari
+  # Tindakan yang disarankan, menurut status terparah pos (sekarang atau prakiraan). `pantau` = pos
+  # Normal yang punya sinyal. Diringkas dari Pedoman Pengendalian Banjir bagi OPD, Lembaga Usaha &
+  # Relawan (BPBD DKI Jakarta, 2020), Bab I-III: kenaikan Siaga 2 atau 1 di pintu air memicu SMS blast
+  # ke warga bantaran dan persiapan ~2 jam sebelum banjir (tenda pengungsian/posko/kesehatan, personel
+  # penyelamatan, pompa mobile, koordinasi PLN); himbauan evakuasi ke RT/RW ~1 jam sebelum banjir.
+  # SOP tidak membedakan Siaga 2 dan 1; pemisahan di bawah (persiapan vs evakuasi) tafsiran kita.
+  # Siaga 3 tidak punya tindakan khusus di SOP: diisi dengan langkah antisipasi umumnya.
+  tindakan:
+    pantau: Pantau TMA pos ini dan pos hulunya lebih rapat sampai prakiraan berikutnya.
+    3: Pantau peringatan dini BPBD/DSDA, pastikan personel, pompa, pintu air dan sarana penanggulangan siap dipakai.
+    2: Kirim peringatan dini ke RT/RW dan warga bantaran; ~2 jam sebelum banjir dirikan tenda pengungsian, posko dan pos kesehatan, siagakan personel penyelamatan dan pompa mobile, koordinasi PLN.
+    1: Himbau RT/RW evakuasi mandiri (~1 jam sebelum banjir), lakukan evakuasi dan penyelamatan warga bantaran, fungsikan tenda pengungsian dan posko.
+
+# Posisi pos di peta. PERKIRAAN, cukup untuk menaruh titik di peta, bukan untuk survei. API tidak
+# memberi koordinat, jadi: Katulampa = bendung di OSM; Depok = Jembatan Panus (pos pantau Ciliwung,
+# Republika 09-01-2020); Waduk Pluit = tengah waduk di OSM; pos hulu lain = titik di alur sungai (OSM)
+# di wilayah yang disebut Pedoman BPBD (2020) hlm. 10: Krukut Hulu di Ciganjur, Pesanggrahan di
+# Sawangan, Angke Hulu di Ciledug, Sunter Hulu di Pondok Ranggon (alur tanpa nama yang menyambung ke
+# Kali Sunter), Cipinang Hulu di Cimanggis (ujung selatan Kali Cipinang yang bernama di OSM). Untuk
+# lima pos ini akurasinya setingkat kelurahan/kecamatan. Kunci = nama kolom di station_features.
+# Pos yang tidak ada di sini tetap muncul di tabel, hanya tanpa titik di peta.
+#
+# siaga = batas bawah status siaga (cm): TMA > siaga[3] -> Siaga 3 (waspada), > siaga[2] -> Siaga 2,
+# > siaga[1] -> Siaga 1 (awas); sisanya Siaga 4 (normal). Angka dari tabel "Status Siaga Pintu Air"
+# di Pedoman Pengendalian Banjir BPBD DKI Jakarta (2020), hlm. 9. Tabel menulis rentang (Katulampa:
+# Normal <80, Siaga III 80-149, II 150-199, I >200), tapi API sisteminformasibanjir memberi status
+# lebih rendah tepat di angka batas (80 cm di Katulampa selalu Normal), jadi batas dibaca strict `>`.
+# Dicek ke field status_siaga API 2021-01-16 s/d 2026-11-02 (385.646 pengamatan): cocok 100% di
+# semua pos. Tabel juga memuat PA Manggarai, PA Karet, Pasar Ikan dan PA Pulogadung (belum dipakai).
+#
+# aliran = kelompok di API sisteminformasibanjir (pos_pengamatan.aliran). Urutan di bawah = urutan
+# di papan status: per aliran, dari hulu ke hilir.
+stations:
+  Bendung Katulampa:  {label: Katulampa, aliran: Tengah, lat: -6.633, lon: 106.837, siaga: {3: 80, 2: 150, 1: 200}}
+  Pos Depok:          {label: Depok, aliran: Tengah, lat: -6.400, lon: 106.831, siaga: {3: 200, 2: 270, 1: 350}}
+  Pos Krukut Hulu:    {label: Krukut Hulu, aliran: Tengah, side: left, lat: -6.329, lon: 106.803, siaga: {3: 150, 2: 250, 1: 300}}
+  Waduk Pluit:        {label: Waduk Pluit, aliran: Tengah, side: left, lat: -6.118, lon: 106.799, siaga: {3: -51, 2: 0, 1: 45}}
+  Pos Pesanggrahan:   {label: Pesanggrahan, aliran: Barat, side: left, lat: -6.377, lon: 106.766, siaga: {3: 150, 2: 250, 1: 350}}
+  Pos Angke Hulu:     {label: Angke Hulu, aliran: Barat, lat: -6.247, lon: 106.679, siaga: {3: 150, 2: 250, 1: 300}}
+  Pos Cipinang Hulu:  {label: Cipinang Hulu, aliran: Timur, side: left, lat: -6.367, lon: 106.884, siaga: {3: 150, 2: 200, 1: 250}}
+  Pos Sunter Hulu:    {label: Sunter Hulu, aliran: Timur, lat: -6.354, lon: 106.916, siaga: {3: 140, 2: 200, 1: 250}}

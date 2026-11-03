@@ -1,0 +1,900 @@
+{
+ "sumber": "© OpenStreetMap contributors (ODbL 1.0) lewat Overpass API; diturunkan oleh src/dashboard/build_wilayah.py, bukan daftar resmi BPBD",
+ "dibuat": "2026-11-03",
+ "buffer_m": 300,
+ "pos": {
+  "Bendung Katulampa": {
+   "sungai": "Ciliwung",
+   "sampai": "PA Manggarai",
+   "kelurahan": [
+    [
+     "Srengseng Sawah",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kalisari",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Lenteng Agung",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Baru",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Cijantung",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Tanjung Barat",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Gedong",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Pasar Minggu",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bale Kambang",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Batu Ampar",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Pejaten Timur",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pejaten Barat",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kalibata",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cililitan",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Rawajati",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cawang",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Pengadegan",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cikoko",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bidara Cina",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Kebon Baru",
+     "Tebet",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bukit Duri",
+     "Tebet",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bali Mester",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Kampung Melayu",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Manggarai",
+     "Tebet",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kebon Manggis",
+     "Matraman",
+     "Jakarta Timur"
+    ],
+    [
+     "Pegangsaan",
+     "Menteng",
+     "Jakarta Pusat"
+    ],
+    [
+     "Menteng",
+     "Menteng",
+     "Jakarta Pusat"
+    ]
+   ]
+  },
+  "Pos Depok": {
+   "sungai": "Ciliwung",
+   "sampai": "PA Manggarai",
+   "kelurahan": [
+    [
+     "Srengseng Sawah",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kalisari",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Lenteng Agung",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Baru",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Cijantung",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Tanjung Barat",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Gedong",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Pasar Minggu",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bale Kambang",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Batu Ampar",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Pejaten Timur",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pejaten Barat",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kalibata",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cililitan",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Rawajati",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cawang",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Pengadegan",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cikoko",
+     "Pancoran",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bidara Cina",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Kebon Baru",
+     "Tebet",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bukit Duri",
+     "Tebet",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bali Mester",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Kampung Melayu",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Manggarai",
+     "Tebet",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kebon Manggis",
+     "Matraman",
+     "Jakarta Timur"
+    ],
+    [
+     "Pegangsaan",
+     "Menteng",
+     "Jakarta Pusat"
+    ],
+    [
+     "Menteng",
+     "Menteng",
+     "Jakarta Pusat"
+    ]
+   ]
+  },
+  "Pos Krukut Hulu": {
+   "sungai": "Krukut",
+   "sampai": "PA Karet",
+   "kelurahan": [
+    [
+     "Ciganjur",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Jagakarsa",
+     "Jagakarsa",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pondok Labu",
+     "Cilandak",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cilandak Timur",
+     "Pasar Minggu",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cilandak Barat",
+     "Cilandak",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cipete Selatan",
+     "Cilandak",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bangka",
+     "Mampang Prapatan",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cipete Utara",
+     "Kebayoran Baru",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pulo",
+     "Kebayoran Baru",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pela Mampang",
+     "Mampang Prapatan",
+     "Jakarta Selatan"
+    ],
+    [
+     "Petogogan",
+     "Kebayoran Baru",
+     "Jakarta Selatan"
+    ],
+    [
+     "Rawa Barat",
+     "Kebayoran Baru",
+     "Jakarta Selatan"
+    ],
+    [
+     "Selong",
+     "Kebayoran Baru",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kuningan Barat",
+     "Mampang Prapatan",
+     "Jakarta Selatan"
+    ],
+    [
+     "Senayan",
+     "Kebayoran Baru",
+     "Jakarta Selatan"
+    ],
+    [
+     "Karet Semanggi",
+     "Setiabudi",
+     "Jakarta Selatan"
+    ],
+    [
+     "Karet Kuningan",
+     "Setiabudi",
+     "Jakarta Selatan"
+    ],
+    [
+     "Karet",
+     "Setiabudi",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bendungan Hilir",
+     "Tanah Abang",
+     "Jakarta Pusat"
+    ],
+    [
+     "Karet Tengsin",
+     "Tanah Abang",
+     "Jakarta Pusat"
+    ],
+    [
+     "Kebon Melati",
+     "Tanah Abang",
+     "Jakarta Pusat"
+    ],
+    [
+     "Petamburan",
+     "Tanah Abang",
+     "Jakarta Pusat"
+    ]
+   ]
+  },
+  "Pos Pesanggrahan": {
+   "sungai": "Pesanggrahan",
+   "sampai": "laut, lewat Cengkareng Drain",
+   "kelurahan": [
+    [
+     "Pondok Labu",
+     "Cilandak",
+     "Jakarta Selatan"
+    ],
+    [
+     "Lebak Bulus",
+     "Cilandak",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pondok Pinang",
+     "Kebayoran Lama",
+     "Jakarta Selatan"
+    ],
+    [
+     "Bintaro",
+     "Pesanggrahan",
+     "Jakarta Selatan"
+    ],
+    [
+     "Pesanggrahan",
+     "Pesanggrahan",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kebayoran Lama Selatan",
+     "Kebayoran Lama",
+     "Jakarta Selatan"
+    ],
+    [
+     "Kebayoran Lama Utara",
+     "Kebayoran Lama",
+     "Jakarta Selatan"
+    ],
+    [
+     "Cipulir",
+     "Kebayoran Lama",
+     "Jakarta Selatan"
+    ],
+    [
+     "Ulujami",
+     "Pesanggrahan",
+     "Jakarta Selatan"
+    ],
+    [
+     "Grogol Selatan",
+     "Kebayoran Lama",
+     "Jakarta Selatan"
+    ],
+    [
+     "Sukabumi Selatan",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Kelapa Dua",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Srengseng",
+     "Kembangan",
+     "Jakarta Barat"
+    ],
+    [
+     "Meruya Utara",
+     "Kembangan",
+     "Jakarta Barat"
+    ],
+    [
+     "Kebon Jeruk",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Kembangan Selatan",
+     "Kembangan",
+     "Jakarta Barat"
+    ],
+    [
+     "Kedoya Selatan",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Kembangan Utara",
+     "Kembangan",
+     "Jakarta Barat"
+    ],
+    [
+     "Kedoya Utara",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Rawa Buaya",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Kedaung Kali Angke",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Kapuk",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Cengkareng Timur",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Kapuk Muara",
+     "Penjaringan",
+     "Jakarta Utara"
+    ],
+    [
+     "Kamal Muara",
+     "Penjaringan",
+     "Jakarta Utara"
+    ]
+   ]
+  },
+  "Pos Angke Hulu": {
+   "sungai": "Angke",
+   "sampai": "laut",
+   "kelurahan": [
+    [
+     "Kembangan Selatan",
+     "Kembangan",
+     "Jakarta Barat"
+    ],
+    [
+     "Kedoya Selatan",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Kembangan Utara",
+     "Kembangan",
+     "Jakarta Barat"
+    ],
+    [
+     "Duri Kosambi",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Kedoya Utara",
+     "Kebon Jeruk",
+     "Jakarta Barat"
+    ],
+    [
+     "Rawa Buaya",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Wijaya Kusuma",
+     "Grogol Petamburan",
+     "Jakarta Barat"
+    ],
+    [
+     "Kedaung Kali Angke",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Kapuk",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Cengkareng Timur",
+     "Cengkareng",
+     "Jakarta Barat"
+    ],
+    [
+     "Pejagalan",
+     "Penjaringan",
+     "Jakarta Utara"
+    ],
+    [
+     "Kapuk Muara",
+     "Penjaringan",
+     "Jakarta Utara"
+    ],
+    [
+     "Kamal Muara",
+     "Penjaringan",
+     "Jakarta Utara"
+    ],
+    [
+     "Pluit",
+     "Penjaringan",
+     "Jakarta Utara"
+    ]
+   ]
+  },
+  "Pos Cipinang Hulu": {
+   "sungai": "Cipinang",
+   "sampai": "PA Pulo Gadung",
+   "kelurahan": [
+    [
+     "Cibubur",
+     "Ciracas",
+     "Jakarta Timur"
+    ],
+    [
+     "Pekayon",
+     "Pasar Rebo",
+     "Jakarta Timur"
+    ],
+    [
+     "Kelapa Dua Wetan",
+     "Ciracas",
+     "Jakarta Timur"
+    ],
+    [
+     "Ciracas",
+     "Ciracas",
+     "Jakarta Timur"
+    ],
+    [
+     "Ceger",
+     "Cipayung",
+     "Jakarta Timur"
+    ],
+    [
+     "Rambutan",
+     "Ciracas",
+     "Jakarta Timur"
+    ],
+    [
+     "Dukuh",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Tengah",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Pinang Ranti",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Kramat Jati",
+     "Kramat Jati",
+     "Jakarta Timur"
+    ],
+    [
+     "Makasar",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Halim Perdana Kusuma",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Kebon Pala",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Melayu",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Cempedak",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Besar Selatan",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Muara",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Besar Utara",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Rawa Bunga",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Klender",
+     "Duren Sawit",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ],
+    [
+     "Jatinegara Kaum",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ]
+   ]
+  },
+  "Pos Sunter Hulu": {
+   "sungai": "Sunter",
+   "sampai": "laut",
+   "kelurahan": [
+    [
+     "Pondok Ranggon",
+     "Cipayung",
+     "Jakarta Timur"
+    ],
+    [
+     "Cilangkap",
+     "Cipayung",
+     "Jakarta Timur"
+    ],
+    [
+     "Setu",
+     "Cipayung",
+     "Jakarta Timur"
+    ],
+    [
+     "Lubang Buaya",
+     "Cipayung",
+     "Jakarta Timur"
+    ],
+    [
+     "Halim Perdana Kusuma",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Melayu",
+     "Makasar",
+     "Jakarta Timur"
+    ],
+    [
+     "Pondok Bambu",
+     "Duren Sawit",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang Muara",
+     "Jatinegara",
+     "Jakarta Timur"
+    ],
+    [
+     "Klender",
+     "Duren Sawit",
+     "Jakarta Timur"
+    ],
+    [
+     "Cipinang",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ],
+    [
+     "Jatinegara",
+     "Cakung",
+     "Jakarta Timur"
+    ],
+    [
+     "Jatinegara Kaum",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ],
+    [
+     "Jati",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ],
+    [
+     "Pulo Gadung",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ],
+    [
+     "Rawa Terate",
+     "Cakung",
+     "Jakarta Timur"
+    ],
+    [
+     "Kayu Putih",
+     "Pulo Gadung",
+     "Jakarta Timur"
+    ],
+    [
+     "Cempaka Putih Timur",
+     "Cempaka Putih",
+     "Jakarta Pusat"
+    ],
+    [
+     "Kelapa Gading Timur",
+     "Kelapa Gading",
+     "Jakarta Utara"
+    ],
+    [
+     "Sumur Batu",
+     "Kemayoran",
+     "Jakarta Pusat"
+    ],
+    [
+     "Kelapa Gading Barat",
+     "Kelapa Gading",
+     "Jakarta Utara"
+    ],
+    [
+     "Sunter Jaya",
+     "Tanjung Priok",
+     "Jakarta Utara"
+    ],
+    [
+     "Sunter Agung",
+     "Tanjung Priok",
+     "Jakarta Utara"
+    ],
+    [
+     "Rawa Badak Selatan",
+     "Koja",
+     "Jakarta Utara"
+    ],
+    [
+     "Papanggo",
+     "Tanjung Priok",
+     "Jakarta Utara"
+    ],
+    [
+     "Sungai Bambu",
+     "Tanjung Priok",
+     "Jakarta Utara"
+    ],
+    [
+     "Rawa Badak Utara",
+     "Koja",
+     "Jakarta Utara"
+    ],
+    [
+     "Kebon Bawang",
+     "Tanjung Priok",
+     "Jakarta Utara"
+    ],
+    [
+     "Lagoa",
+     "Koja",
+     "Jakarta Utara"
+    ],
+    [
+     "Koja",
+     "Koja",
+     "Jakarta Utara"
+    ],
+    [
+     "Kalibaru",
+     "Cilincing",
+     "Jakarta Utara"
+    ]
+   ]
+  },
+  "Waduk Pluit": {
+   "sungai": "Waduk Pluit",
+   "sampai": "waduk dan sekitarnya",
+   "kelurahan": [
+    [
+     "Penjaringan",
+     "Penjaringan",
+     "Jakarta Utara"
+    ],
+    [
+     "Pluit",
+     "Penjaringan",
+     "Jakarta Utara"
+    ]
+   ]
+  }
+ }
+}

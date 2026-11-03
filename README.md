@@ -37,6 +37,7 @@ packaged as the `src/` pipeline. How the candidates compared is summarised in
     ├── rainfall/            # Open-Meteo -> rainfall_hourly (rain per grid cell) + per-station cell ranking
     ├── preprocessing/       # one-time setup: station_features -> train/val/test, scalers, metadata
     ├── prediction/          # forecast pipeline: best model + latest data -> forecast (cm)
+    ├── dashboard/           # Dash app: latest forecast_output + recent water levels (make dashboard)
     ├── load_best_model.py   # CLI: inspect/load the current best model's weights
     └── predict.py           # CLI: run the full forecast pipeline
 ```
@@ -106,6 +107,105 @@ uv run python main.py --station "Bendung Katulampa" --horizon 1 3
 uv run python main.py --write-bq        # also persist to tables.forecast_output
 uv run python main.py --csv forecast.csv
 ```
+
+Dashboard: `make predict-bq` appends the forecast to `forecast_output_<g>`
+(the hourly Cloud Run job does the same when `RUN_PREDICT=true`), and
+`make dashboard` serves a Dash app on http://127.0.0.1:8050 that reads the
+latest forecast per station/horizon from that table plus the recent
+`station_features_<g>` water levels, `rainfall_<g>` per grid cell, and the model
+in use (`model_selection_<g>`, and the rain cells per station from
+`preprocessing_metadata_<g>`). Rain and model info are optional: if they fail to
+load, the page shows a dash there and keeps going. It never runs the model
+itself, and re-reads BigQuery every `refresh_seconds` (`config/dashboard.yaml`)
+or when "Muat ulang" is pressed. Dash lives in the separate `dashboard`
+dependency group, so the job image doesn't carry it.
+
+The page opens with a summary strip (worst Siaga status within the forecast
+horizon, current status, 24 h catchment rain, age of the data, model), then a
+drawn map of the five Jakarta cities, with Depok, Tangerang and Tangerang
+Selatan paler around them (OpenStreetMap boundaries bundled as
+`src/dashboard/kota.geojson`, so no map tiles are needed) and one dot per
+station; Katulampa, south of the drawn area, sits on its bottom edge with an
+arrow and its distance. Inside the cities the map draws the kecamatan boundaries
+and each station's river, and a dotted line follows the river from each
+upstream station to the city; the selected station's river is drawn bold and
+the kecamatan downstream of it are shaded (hover a shaded kecamatan for its
+kelurahan). The API gives no station coordinates, so the dots are approximate:
+Katulampa is the OSM weir, Depok the Panus bridge (the Ciliwung monitoring post,
+[Republika, 9 Jan 2020](https://news.republika.co.id/berita/q3uelu384/debit-air-sungai-ciliwung-naik-hingga-190-cm)),
+and the other upstream stations sit on their river inside the area the BPBD
+guide names for them (p. 10), so they are right to the kelurahan, not the
+building. Beside the map,
+the selected station's panel shows its level now and 24 h rain in its model
+cells, draws its level as a smoothed area with the forecast dotted on from the
+latest reading and the nearby Siaga limits marked on the right edge, and lists
+its limits, forecast changes and downstream kecamatan/kelurahan underneath.
+Clicking a dot on the map switches
+the panel. Below, a full-width status board lists the stations grouped by aliran
+(Tengah, Barat, Timur; upstream to downstream) with the level now and at
++1/+3/+12 jam, each cell tinted by its Siaga status (3 yellow, 2 orange, 1 red);
+clicking a row also picks the station. The Sekarang / +1 / +3 / +12 jam filter
+picks which status the map dots and the board's highlighted column show.
+"Unduh laporan PDF" in the top bar (or "Laporan lengkap (PDF)" on the Laporan
+singkat card above the map) downloads an A4 PDF report of the same snapshot,
+built with ReportLab in the dashboard's typeface (Geist, bundled in
+`src/dashboard/fonts/` under the SIL OFL): the headline
+finding, a "Perlu perhatian" list of the stations that need attention, each with
+the signals that put it there (Siaga status forecast to rise, forecast peak or
+recent trend up by at least `rise_threshold_cm`, close to the next Siaga limit,
+heavy rain in its model cells, an upstream station in the same aliran rising),
+a suggested action for its worst status and its downstream kelurahan, then a table of all stations and the
+data caveats (stale data, missing forecasts or limits). The thresholds and the
+action texts are under `laporan:` in `config/dashboard.yaml`; the actions are
+summarised from BPBD DKI Jakarta's *Pedoman Pengendalian Banjir bagi OPD, Lembaga
+Usaha & Relawan* (2020). That guide triggers the same preparations for Siaga 2 and
+Siaga 1 at a water gate, so splitting them into preparation (Siaga 2) and evacuation
+(Siaga 1) is this project's reading of it.
+Station positions are **approximate** coordinates in `config/dashboard.yaml`
+(`stations:`); edit them there. The Geist font loads from the internet in the
+viewer's browser.
+
+Siaga limits (`siaga:` per station in the same file) come from the "Status Siaga
+Pintu Air" table in the same BPBD guide (p. 9). The table writes ranges (Katulampa:
+Siaga III 80-149), but the sisteminformasibanjir API gives the lower status at
+exactly the limit (80 cm at Katulampa is always Normal), so a level must be
+strictly above the limit. Checked against the `status_siaga` field the API returns
+with every reading, 2021-01-16 to 2026-11-02 (385,646 readings), this reproduces
+the API's status for every reading at all eight stations.
+
+Downstream areas ("wilayah hilir") are an **estimate**, not an official BPBD list
+(none is published as data). `make wilayah` (`src/dashboard/build_wilayah.py`)
+rebuilds them from OpenStreetMap through the Overpass API and writes
+`src/dashboard/kota.geojson` (the five cities, dissolved from the kecamatan below,
+plus Depok, Tangerang and Tangerang Selatan cut to the map frame),
+`kecamatan.geojson` (42 mainland kecamatan), `sungai.geojson` (each station's
+river inside DKI, plus the upstream reach from each station's dot, found by
+walking the OSM waterway network downstream) and `hilir.json` (kelurahan per
+station, upstream first). These four files are derived from OpenStreetMap,
+© OpenStreetMap contributors, and are therefore under the ODbL 1.0. A river is
+the OSM ways named after it, joined through unnamed segments in flow direction,
+plus the upstream reach, clipped to DKI from the station's latitude northwards
+(the rivers flow north, so Krukut Hulu in Ciganjur leaves out Cipedak upstream of
+it) and buffered by 300 m. Kelurahan touching that buffer count as downstream. Ciliwung stops at PA Manggarai and
+Krukut at PA Karet, the gates the BPBD guide gives as their destination (p. 10);
+past those gates the gate's own status applies. Pesanggrahan and Angke run to the
+sea through Cengkareng Drain. Waduk Pluit uses the reservoir plus 300 m. The build
+checks the result against the kelurahan BPBD named in its early warnings, as quoted
+in the press:
+
+| River | BPBD warning used | Kelurahan covered |
+|---|---|---|
+| Ciliwung (Katulampa, Depok) | [detik, 11 Oct 2022](https://news.detik.com/berita/d-6342287/katulampa-siaga-3-warga-di-11-daerah-dki-ini-harap-waspada-banjir); [Kontan, 24 Feb 2014](https://nasional.kontan.co.id/news/katulampa-siaga-iii-8-kelurahan-diimbau-waspada) | 12 of 12 |
+| Pesanggrahan | [Medcom, 31 Dec 2023](https://www.medcom.id/nasional/metro/xkEoYxDN-tinggi-muka-air-di-pos-pantau-pesanggrahan-siaga-3) | 19 of 19 |
+| Angke | [iNews, 6 Feb 2021](https://www.inews.id/news/megapolitan/peringatan-dini-banjir-di-jakarta-warga-bantaran-sungai-diminta-waspada/all); [Republika, 5 Feb 2021](https://daerah.republika.co.id/berita/qo1gfh330/bpbd-dki-ingatkan-warga-sepanjang-bantaran-sungai) | 7 of 8 (misses Cengkareng Barat) |
+| Sunter | [Medcom, 3 Dec 2022](https://www.medcom.id/nasional/metro/4KZP3Yqb-bpbd-dki-minta-21-wilayah-antisipasi-kenaikan-muka-air-sunter-hulu) | 18 of 21 (misses Bambu Apus, Duren Sawit, Pondok Kelapa) |
+
+No checkable list was found for Krukut and Cipinang. Those two are unvalidated, and so
+is precision: BPBD's lists name the areas it expects to flood, not every kelurahan
+on the bank, so extra kelurahan in `hilir.json` are not necessarily wrong. OSM
+river data has gaps (unnamed or disconnected segments), so check the rivers on the
+map after a rebuild. Kecamatan outside DKI (Depok, Bogor, Tangerang) are not covered.
+The station dots come from `config/dashboard.yaml`, so rebuild after moving one.
 
 Inspect which model is currently "best" and load its weights without running
 a forecast (useful for debugging):

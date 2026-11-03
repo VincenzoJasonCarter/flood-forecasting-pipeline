@@ -15,7 +15,7 @@ TOP ?= 3
 # Load SIBANJIR_TOKEN (and anything else) from .env when it exists.
 ENV_FILE := $(if $(wildcard .env),--env-file ../.env,)
 
-.PHONY: help venv sync test raw-preprocess raw-preprocess-bq raw-preprocess-incremental rainfall rainfall-survey rainfall-bq rainfall-incremental rainfall-rank preprocess predict
+.PHONY: help venv sync test raw-preprocess raw-preprocess-bq raw-preprocess-incremental rainfall rainfall-survey rainfall-bq rainfall-incremental rainfall-rank preprocess predict predict-bq dashboard wilayah
 
 help:
 	@echo Targets:
@@ -32,6 +32,9 @@ help:
 	@echo   rainfall-incremental  re-fetch last days from max date in BigQuery, merge, rewrite table
 	@echo   preprocess         station_features_GRANULARITY to preprocessed_data/metadata/scalers_GRANULARITY
 	@echo   predict            run the forecast pipeline
+	@echo   predict-bq         same, and append the forecast to tables.forecast_output_GRANULARITY
+	@echo   dashboard          Dash dashboard on http://127.0.0.1:8050 reading forecast_output + station_features
+	@echo   wilayah            rebuild the dashboard's kecamatan, river and downstream-area files from OpenStreetMap
 	@echo GRANULARITY comes from config/raw_preprocessing.yaml or config/preprocessing.yaml,
 	@echo override per run with ARGS="--granularity daily"
 	@echo Pass extra flags with ARGS, e.g. make raw-preprocess ARGS="--end 2026-08-25"
@@ -45,8 +48,9 @@ venv: .venv
 sync:
 	uv sync
 
+# tests/dashboard import dash/plotly from the dashboard group (CI syncs it too)
 test:
-	uv run pytest
+	uv run --group dashboard pytest
 
 raw-preprocess:
 	cd src && uv run $(ENV_FILE) python -m raw_preprocessing $(ARGS)
@@ -77,3 +81,13 @@ preprocess:
 
 predict:
 	uv run python main.py $(ARGS)
+
+predict-bq:
+	uv run python main.py --write-bq $(ARGS)
+
+dashboard:
+	cd src && uv run --group dashboard python -m dashboard $(ARGS)
+
+# shapely hanya dipakai saat membangun data wilayah, tidak ikut grup dashboard
+wilayah:
+	cd src && uv run --group dashboard --with shapely python -m dashboard.build_wilayah $(ARGS)

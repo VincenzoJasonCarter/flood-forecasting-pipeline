@@ -13,5 +13,5 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --group dashboard
       - run: uv run pytest -q
