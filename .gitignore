@@ -39,3 +39,4 @@ notebooks_training/
 .agents/
 .claude/skills/
 skills-lock.json
+.taste-skill/
