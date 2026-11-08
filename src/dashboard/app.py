@@ -1,11 +1,17 @@
-"""Dash app: ringkasan, laporan singkat, papan status siaga per aliran, peta hujan + pos, dan panel satu pos (hasil `make predict-bq`)."""
+"""Dash app, dua halaman (hasil `make predict-bq`):
+
+/      ringkasan: peta pos + ringkasan, grafik TMA satu pos (rentang 3 hari s.d. 1 tahun), laporan singkat
+/pos   detail: papan status siaga per aliran, lalu pos terpilih (?nama=): peta hilir, batas dan prakiraan
+"""
 
 import logging
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlencode
 
-from dash import Dash, Input, Output, ctx, dcc, html, no_update
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 
-from .data import GRANULARITY, REFRESH_SECONDS, REPORT, RISE_THRESHOLD_CM, STATIONS, UNIT, load_snapshot
+from .data import (GRANULARITY, REFRESH_SECONDS, REPORT, RISE_THRESHOLD_CM, STATIONS, STEP_HOURS, UNIT, load_history,
+                   load_snapshot)
 from .figures import (BULAN, HILIR, HILIR_BUFFER_M, SIAGA_NAME, gauge, hilir_kecamatan, map_figure, rain_totals,
                       station_figure, station_rain, station_rows)
 from .report import assess, attention, build_report, next_limit, selection_note, snapshot_as_of, stale_note
@@ -14,8 +20,14 @@ logger = logging.getLogger(__name__)
 
 FONTS = "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&display=swap"
 
-app = Dash(__name__, title="Flood Forecast", external_stylesheets=[FONTS])
+# suppress_callback_exceptions: tiap halaman hanya memuat komponennya sendiri, callback halaman lain menunggu
+app = Dash(__name__, title="Flood Forecast", external_stylesheets=[FONTS], suppress_callback_exceptions=True)
 server = app.server  # untuk gunicorn kalau nanti di-deploy
+
+DETAIL_PATH = "/pos"
+# filter rentang grafik di halaman detail: kunci -> (label, jam). Yang muat di snapshot (history_steps)
+# diambil dari sana, yang lebih panjang dibaca per pos lewat load_history
+RANGES = {"3d": ("3 hari", 72), "1w": ("1 minggu", 7 * 24), "1m": ("1 bulan", 30 * 24), "1y": ("1 tahun", 365 * 24)}
 
 NO_FORECAST = "Belum ada forecast di forecast_output. Jalankan make predict-bq."
 NO_LIMITS = "Ambang siaga belum diisi di config/dashboard.yaml."
@@ -154,7 +166,8 @@ def _cell(label, value, sub, level=None, lead=False):
 
 
 def _summary(snap, rows, horizons, now):
-    """Lima angka umum: terburuk ke depan, sekarang, hujan di DAS, kesegaran data, model yang dipakai."""
+    """(sel, catatan): tiga angka umum (terburuk ke depan, sekarang, hujan di DAS), lalu kesegaran data
+    dan model yang dipakai sebagai teks kecil di bawahnya."""
     peak = _worst_ahead(rows, horizons)
     if peak:
         level, h, at = peak
@@ -178,23 +191,25 @@ def _summary(snap, rows, horizons, now):
 
     forecast, as_of = snap["forecast"], snapshot_as_of(snap)
     if as_of is None:
-        fresh = _cell("Data terakhir", "–", "Belum ada data")
+        fresh = "Data terakhir: belum ada data"
+    elif GRANULARITY == "hourly":
+        fresh = f"Data terakhir {as_of:%H:%M}, {_date_id(as_of)} · {_ago(now - as_of)}"
     else:
-        clock = as_of.strftime("%H:%M") if GRANULARITY == "hourly" else _date_id(as_of)
-        sub = f"{_date_id(as_of)} · {_ago(now - as_of)}" if GRANULARITY == "hourly" else _ago(now - as_of)
-        fresh = _cell("Data terakhir", clock, sub)
+        fresh = f"Data terakhir {_date_id(as_of)} · {_ago(now - as_of)}"
 
     info = snap["model"] or {}
     if info.get("best_model"):
-        model = _cell("Model", str(info["best_model"]).upper(), selection_note(info) or "model terpilih")
+        note = selection_note(info)
+        model = f"Model {str(info['best_model']).upper()}" + (f" · {note}" if note else "")
+    elif not forecast.empty:
+        model = f"Model {', '.join(sorted(forecast['model'].unique())).upper()} · dari forecast_output"
     else:
-        model = _cell("Model", ", ".join(sorted(forecast["model"].unique())).upper() if not forecast.empty else "–",
-                      "dari forecast_output")
-    return [ahead, current, rain, fresh, model]
+        model = "Model –"
+    return [ahead, current, rain], [html.Span(fresh), html.Span(model)]
 
 
 def _brief(snap, rows, horizons, now):
-    """Laporan unduhan dalam satu kartu di atas peta: (subjudul, isi).
+    """Laporan unduhan dalam satu kartu di halaman ringkasan: (subjudul, isi).
 
     Penilaian sama dengan laporan lengkap (`assess`): pos yang perlu perhatian, paling parah dulu,
     masing-masing dengan alasan utamanya dan tindakan yang disarankan. Peringatan data basi di atas.
@@ -304,14 +319,17 @@ def _board_head(horizons, horizon):
             html.Span("Sekarang", className=cls(0))] + [html.Span(f"+{h} {UNIT}", className=cls(h)) for h in horizons]
 
 
-def _board_options(rows, horizons, horizon):
-    """Satu opsi RadioItems per pos, dikelompokkan per aliran (judul kelompok = opsi nonaktif)."""
-    options, group = [], object()
+def _station_href(station):
+    return f"{DETAIL_PATH}?{urlencode({'nama': station})}"
+
+
+def _board(rows, horizons, horizon, selected=None):
+    """Satu baris per pos, dikelompokkan per aliran; tiap baris tautan ?nama= ke pos itu, `selected` disorot."""
+    items, group = [], object()
     for r in rows:
         if r["aliran"] != group:
             group = r["aliran"]
-            options.append({"label": html.Div(f"Aliran {group}" if group else "Lainnya", className="bd-group"),
-                            "value": f"__group_{group}", "disabled": True})
+            items.append(html.Div(f"Aliran {group}" if group else "Lainnya", className="bd-group"))
         cells = []
         for h in [0] + horizons:
             value = r["now"] if h == 0 else r["forecasts"].get(h)
@@ -326,8 +344,9 @@ def _board_options(rows, horizons, horizon):
             html.Span(_gauge(r), className="bd-gauge"),
             *cells,
         ], className="bd-line")
-        options.append({"label": label, "value": r["station"]})
-    return options
+        items.append(dcc.Link(label, href=_station_href(r["station"]),
+                              className="bd-row on" if r["station"] == selected else "bd-row"))
+    return items
 
 
 def _station_head(row):
@@ -361,9 +380,9 @@ def _kpis(row, rain_24h):
 
 
 def _detail(row, horizons):
-    """Batas siaga dan prakiraan pos, dua kolom di bawah grafik."""
+    """Batas siaga, prakiraan dan wilayah hilir pos, di kanan peta halaman detail."""
     if row is None:
-        return html.P("Pilih pos di peta atau di papan status.", className="empty")
+        return html.P("Pilih pos di papan status atau di peta.", className="empty")
     blocks = []
     limits = [html.Div([
         html.Span(f"Siaga {lvl} · {SIAGA_NAME[lvl]}", className="kv-k"),
@@ -421,56 +440,118 @@ def _card_head(title, sub, right=None):
     return html.Div([html.Div([html.H2(title), html.Div(sub, className="sub")]), right], className="card-head")
 
 
-def serve_layout():
+def _chart_levels(snap, station, span):
+    """(TMA, catatan) untuk grafik pada rentang `span` (kunci RANGES).
+
+    Rentang yang muat di snapshot dipotong dari sana; yang lebih panjang dibaca per pos (load_history).
+    Catatan menjelaskan kalau datanya lebih pendek dari rentang, atau kalau bacaan panjang gagal dan
+    grafik kembali ke snapshot.
+    """
+    label, hours = RANGES[span]
+    steps = max(hours // STEP_HOURS, 1)
+    levels = snap["levels"]
+    if steps > len(levels) and station in levels.columns:
+        try:
+            levels = load_history(station, steps)
+        except Exception:
+            logger.exception("Gagal membaca histori %s", station)
+            return levels, f"Histori {label} gagal dibaca; yang tampil {len(levels)} {UNIT} terakhir."
+    levels = levels.tail(steps)
+    if len(levels) and len(levels) < steps * 0.9:
+        return levels, f"Data baru tersedia sejak {_date_id(levels.index.min())}."
+    return levels, None
+
+
+def _overview_page():
+    """Halaman ringkasan: peta + ringkasan, grafik satu pos dengan filter rentang, laporan singkat."""
     snap = _snapshot()
     rows = _rows(snap) if snap else []
+    return [
+        html.Div([
+            html.Section([
+                _card_head("Peta", html.Div(id="map-sub"),
+                           html.Div([html.Span("Tampilkan status", className="seg-label"),
+                                     dcc.RadioItems(id="horizon", options=_horizon_options(snap), value=0,
+                                                    className="seg", inputClassName="opt-input",
+                                                    persistence=True, persistence_type="session")],
+                                    className="seg-wrap")),
+                # tanpa scrollZoom: sumbu peta fixedrange, jadi wheel di atas peta hanya menahan scroll halaman
+                dcc.Graph(id="map", config={"displayModeBar": False, "scrollZoom": False, "responsive": True}),
+            ], className="card map-card"),
+            html.Section([
+                html.Div([html.H1("Pantauan banjir Jakarta"), html.P(id="finding", className="finding")],
+                         className="exec-head"),
+                html.Div(id="summary", className="summary"),
+                html.Div(id="summary-meta", className="meta"),
+            ], className="card exec-card", **{"aria-label": "Ringkasan"}),
+        ], className="row row-a"),
+        html.Section([
+            _card_head(html.Span(id="st-title"), html.Span(id="st-sub"), html.Div(id="st-kpis", className="kpis")),
+            html.Div([
+                html.Div([html.Span("Pos", className="seg-label"),
+                          dcc.Dropdown(id="pick", options=[{"label": r["station"], "value": r["station"]}
+                                                           for r in rows],
+                                       value=_default_station(rows), clearable=False, className="pick",
+                                       persistence=True, persistence_type="session")], className="pick-wrap"),
+                html.Div([html.Span("Rentang", className="seg-label"),
+                          dcc.RadioItems(id="range", options=[{"label": label, "value": key}
+                                                              for key, (label, _) in RANGES.items()],
+                                         value="3d", className="seg", inputClassName="opt-input",
+                                         persistence=True, persistence_type="session")], className="seg-wrap"),
+                html.Span(id="range-note", className="range-note"),
+                dcc.Link("Detail pos →", id="to-detail", href=DETAIL_PATH, className="to-detail"),
+            ], className="chart-bar"),
+            dcc.Loading(dcc.Graph(id="chart", config={"displayModeBar": False, "responsive": True}),
+                        type="dot", color="#1d5fbf", parent_className="chart-wrap", delay_show=300),
+        ], className="card station-card"),
+        html.Section([
+            _card_head("Laporan singkat", html.Div(id="brief-sub"),
+                       html.Div([html.Div(_gauge_key(), className="legend"),
+                                 html.Button("Laporan lengkap (PDF)", id="report-brief", className="btn",
+                                             n_clicks=0)], className="head-right")),
+            html.Div(id="brief", className="brief"),
+        ], className="card brief-card"),
+    ]
+
+
+def _detail_page():
+    """Halaman detail: papan status semua pos, lalu pos terpilih (?nama=): peta hilir | batas, prakiraan, hilir."""
+    return [
+        dcc.Store(id="detail-mounted"),  # Input di dalam halaman: detail_view pasti jalan saat halaman dibuka
+        html.Section([
+            _card_head("Papan status", "TMA dalam cm, sekarang dan prakiraan; warna sel = status siaga; "
+                       "klik pos untuk rinciannya di bawah", html.Div(_gauge_key(), className="legend")),
+            html.Div(id="board-head", className="bd-line bd-head"),
+            html.Div(id="board", className="board"),
+        ], className="card board-card"),
+        html.Div([
+            html.Section([
+                _card_head(html.Span(id="d-title"), html.Span(id="d-sub")),
+                dcc.Graph(id="dmap", config={"displayModeBar": False, "scrollZoom": False, "responsive": True}),
+            ], className="card map-card"),
+            html.Section(html.Div(id="detail", className="detail"), className="card detail-card"),
+        ], className="row row-a"),
+    ]
+
+
+def serve_layout():
     return html.Div([
+        dcc.Location(id="url", refresh="callback-nav"),
         html.Header(html.Div([
-            html.Div([html.Img(src=app.get_asset_url("mark.svg"), alt="", className="mark"),
-                      html.Span("Flood Forecast", className="brand"),
-                      html.Span(f"Jakarta · {len(STATIONS)} pos TMA", className="scope")], className="brand-row"),
+            html.Div([
+                html.Div([html.Img(src=app.get_asset_url("mark.svg"), alt="", className="mark"),
+                          html.Span("Flood Forecast", className="brand"),
+                          html.Span(f"Jakarta · {len(STATIONS)} pos TMA", className="scope")], className="brand-row"),
+                html.Nav([dcc.Link("Ringkasan", href="/", id="nav-overview", className="nav-link"),
+                          dcc.Link("Detail pos", href=DETAIL_PATH, id="nav-detail", className="nav-link")],
+                         className="nav"),
+            ], className="bar-left"),
             html.Div([html.Span(id="status", className="stamp"),
                       html.Button("Unduh laporan PDF", id="report", className="btn", n_clicks=0),
                       html.Button("Muat ulang", id="reload", className="btn", n_clicks=0)], className="bar-right"),
         ], className="column bar"), className="topbar"),
-        html.Main([
-            html.Div([
-                html.Div([html.H1("Pantauan banjir Jakarta"), html.P(id="finding", className="finding")],
-                         className="title-text"),
-                html.Div([html.Span("Tampilkan status", className="seg-label"),
-                          dcc.RadioItems(id="horizon", options=_horizon_options(snap), value=0, className="seg",
-                                         inputClassName="opt-input")], className="seg-wrap"),
-            ], className="title-row"),
-            html.Section(id="summary", className="summary card", **{"aria-label": "Ringkasan"}),
-            html.Section([
-                _card_head("Laporan singkat", html.Div(id="brief-sub"),
-                           html.Div([html.Div(_gauge_key(), className="legend"),
-                                     html.Button("Laporan lengkap (PDF)", id="report-brief", className="btn",
-                                                 n_clicks=0)], className="head-right")),
-                html.Div(id="brief", className="brief"),
-            ], className="card brief-card"),
-            html.Div([
-                html.Section([
-                    _card_head("Peta", html.Div(id="map-sub")),
-                    # tanpa scrollZoom: sumbu peta fixedrange, jadi wheel di atas peta hanya menahan scroll halaman
-                    dcc.Graph(id="map", config={"displayModeBar": False, "scrollZoom": False, "responsive": True}),
-                ], className="card map-card"),
-                html.Section([
-                    _card_head(html.Span(id="st-title"), html.Span(id="st-sub"),
-                               html.Div(id="st-kpis", className="kpis")),
-                    dcc.Graph(id="chart", config={"displayModeBar": False, "responsive": True}),
-                    html.Div(id="detail", className="detail"),
-                ], className="card station-card"),
-            ], className="row row-a"),
-            html.Section([
-                _card_head("Papan status", "TMA dalam cm, sekarang dan prakiraan; warna sel = status siaga",
-                           html.Div(_gauge_key(), className="legend")),
-                html.Div(id="board-head", className="bd-line bd-head"),
-                dcc.RadioItems(id="station", options=[], value=_default_station(rows), className="board",
-                               inputClassName="opt-input"),
-            ], className="card board-card"),
-            html.Footer(SOURCES, className="sources"),
-        ], className="column"),
+        html.Main(id="page", className="column"),
+        html.Footer(SOURCES, className="column sources"),
         dcc.Store(id="version"),
         dcc.Download(id="report-file"),
         dcc.Interval(id="tick", interval=REFRESH_SECONDS * 1000),
@@ -478,6 +559,21 @@ def serve_layout():
 
 
 app.layout = serve_layout
+
+
+@app.callback(Output("page", "children"), Output("nav-overview", "className"), Output("nav-detail", "className"),
+              Input("url", "pathname"), State("url", "search"))
+def route(path, _search):
+    """Halaman menurut path; ganti pos di halaman detail hanya mengubah ?nama=, tanpa membangun ulang halaman."""
+    if path == DETAIL_PATH:
+        return _detail_page(), "nav-link", "nav-link on"
+    return _overview_page(), "nav-link on", "nav-link"
+
+
+def _search_station(search, rows):
+    """Pos dari ?nama=; pos default (paling parah) kalau kosong atau tidak dikenal."""
+    station = (parse_qs((search or "").lstrip("?")).get("nama") or [None])[0]
+    return station if any(r["station"] == station for r in rows) else _default_station(rows)
 
 
 @app.callback(Output("version", "data"), Input("reload", "n_clicks"), Input("tick", "n_intervals"))
@@ -493,30 +589,30 @@ def refresh_horizons(_):
     return _horizon_options(snap) if snap else no_update
 
 
+@app.callback(Output("status", "children"), Input("version", "data"))
+def stamp(_):
+    return NO_BQ if _snapshot() is None else f"Diperbarui {datetime.now(WIB):%H:%M} WIB"
+
+
 @app.callback(
-    Output("status", "children"), Output("finding", "children"), Output("summary", "children"),
-    Output("board-head", "children"), Output("station", "options"),
+    Output("finding", "children"), Output("summary", "children"), Output("summary-meta", "children"),
     Output("map-sub", "children"), Output("brief-sub", "children"), Output("brief", "children"),
     Input("version", "data"), Input("horizon", "value"),
 )
 def overview(_, horizon):
     snap = _snapshot()
     if snap is None:
-        return (NO_BQ, NO_BQ, html.P(NO_BQ, className="empty"), no_update, no_update, no_update,
-                "", html.P(NO_BQ, className="empty"))
+        return NO_BQ, html.P(NO_BQ, className="empty"), "", no_update, "", html.P(NO_BQ, className="empty")
     now = datetime.now(WIB).replace(tzinfo=None)
     rows, horizons = _rows(snap), _horizons(snap)
     when = "sekarang" if not horizon else f"pada +{horizon} {UNIT}"
     map_sub = f"Warna titik = status pos {when} · klik titik untuk grafiknya · arsir = kecamatan di hilir pos terpilih"
     brief_sub, brief = _brief(snap, rows, horizons, now)
-    return (f"Diperbarui {now:%H:%M} WIB", _finding(rows, horizons), _summary(snap, rows, horizons, now),
-            _board_head(horizons, horizon), _board_options(rows, horizons, horizon),
-            map_sub, brief_sub, brief)
+    cells, meta = _summary(snap, rows, horizons, now)
+    return _finding(rows, horizons), cells, meta, map_sub, brief_sub, brief
 
 
-@app.callback(Output("report-file", "data"), Input("report", "n_clicks"), Input("report-brief", "n_clicks"),
-              prevent_initial_call=True)
-def download_report(_, __):
+def _report():
     """Laporan PDF dari snapshot yang sama dengan yang tampil: temuan, pos yang perlu perhatian, tindakan."""
     snap = _snapshot()
     if snap is None:
@@ -527,30 +623,76 @@ def download_report(_, __):
     return dcc.send_bytes(pdf, f"laporan-banjir-{now:%Y%m%d-%H%M}.pdf")
 
 
-@app.callback(Output("station", "value"), Input("map", "clickData"), prevent_initial_call=True)
-def pick_from_map(click):
+# dua callback, bukan satu dengan dua Input: tombol di kartu laporan hanya ada di halaman ringkasan,
+# dan callback tidak jalan selama salah satu Input-nya tidak ada di halaman. Cek n_clicks wajib:
+# tombol yang baru disisipkan route tetap memicu callback-nya walau prevent_initial_call
+@app.callback(Output("report-file", "data"), Input("report", "n_clicks"), prevent_initial_call=True)
+def download_report(clicks):
+    return _report() if clicks else no_update
+
+
+@app.callback(Output("report-file", "data", allow_duplicate=True), Input("report-brief", "n_clicks"),
+              prevent_initial_call=True)
+def download_report_brief(clicks):
+    return _report() if clicks else no_update
+
+
+def _clicked_station(click):
     try:
         return click["points"][0]["customdata"]
     except (TypeError, KeyError, IndexError):
-        return no_update
+        return None
+
+
+@app.callback(Output("pick", "value"), Input("map", "clickData"), prevent_initial_call=True)
+def pick_from_map(click):
+    return _clicked_station(click) or no_update
+
+
+@app.callback(Output("url", "search"), Input("dmap", "clickData"), prevent_initial_call=True)
+def pick_from_detail_map(click):
+    station = _clicked_station(click)
+    return f"?{urlencode({'nama': station})}" if station else no_update
 
 
 @app.callback(
-    Output("map", "figure"), Output("chart", "figure"), Output("st-title", "children"),
-    Output("st-sub", "children"), Output("st-kpis", "children"), Output("detail", "children"),
-    Input("station", "value"), Input("horizon", "value"), Input("version", "data"),
+    Output("map", "figure"), Output("chart", "figure"), Output("range-note", "children"),
+    Output("st-title", "children"), Output("st-sub", "children"), Output("st-kpis", "children"),
+    Output("to-detail", "href"),
+    Input("pick", "value"), Input("range", "value"), Input("horizon", "value"), Input("version", "data"),
 )
-def draw(station, horizon, _):
+def draw(station, span, horizon, _):
+    """Halaman ringkasan: peta (pos terpilih ditebalkan) dan grafik pos terpilih pada rentangnya."""
     snap = _snapshot()
     if snap is None:
-        return no_update, no_update, "Pos", "", None, html.P(NO_BQ, className="empty")
+        return no_update, no_update, "", "Pos", "", None, no_update
     rows = _rows(snap)
     row = next((r for r in rows if r["station"] == station), None)
     cells = ((snap["model"] or {}).get("rain_cells") or {}).get(station)
     rain = station_rain(snap["rain"], cells)
     rain_24h = float(rain.tail(RAIN_STEPS).sum()) if rain is not None else None
-    chart = (station_figure(snap["levels"], snap["forecast"], station, UNIT, row["limits"] if row else None)
-             if station else no_update)
+    chart, note = no_update, ""
+    if station:
+        levels, note = _chart_levels(snap, station, span if span in RANGES else "3d")
+        chart = station_figure(levels, snap["forecast"], station, UNIT, row["limits"] if row else None)
     title, sub = _station_head(row)
-    return (map_figure(rows, station, UNIT, horizon), chart,
-            title, sub, _kpis(row, rain_24h), _detail(row, _horizons(snap)))
+    return (map_figure(rows, station, UNIT, horizon), chart, note, title, sub, _kpis(row, rain_24h),
+            _station_href(station) if station else DETAIL_PATH)
+
+
+@app.callback(
+    Output("board-head", "children"), Output("board", "children"), Output("dmap", "figure"),
+    Output("d-title", "children"), Output("d-sub", "children"), Output("detail", "children"),
+    Input("url", "search"), Input("version", "data"), Input("detail-mounted", "data"),
+)
+def detail_view(search, _, __):
+    """Halaman detail: papan status (pos terpilih disorot), lalu peta hilir dan rincian pos dari ?nama=."""
+    snap = _snapshot()
+    if snap is None:
+        return no_update, html.P(NO_BQ, className="empty"), no_update, "Pos", "", html.P(NO_BQ, className="empty")
+    rows, horizons = _rows(snap), _horizons(snap)
+    station = _search_station(search, rows)
+    row = next((r for r in rows if r["station"] == station), None)
+    title, sub = _station_head(row)
+    return (_board_head(horizons, 0), _board(rows, horizons, 0, station), map_figure(rows, station, UNIT, 0),
+            title, sub, _detail(row, horizons))

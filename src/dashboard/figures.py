@@ -41,6 +41,7 @@ SIAGA_NAME = {4: "Normal", 3: "Waspada", 2: "Siaga", 1: "Awas"}
 SIAGA_COLOR = {4: "#3d3d3d", 3: "#d49a00", 2: "#d9620f", 1: "#c4242a"}  # titik di peta; normal = tinta
 NO_STATUS = "#9a9c9e"  # pos tanpa ambang siaga
 BULAN = ("Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des")
+SPLINE_MAX_POINTS = 1000  # di atas ini (rentang 1 bulan/1 tahun per jam) garis TMA digambar lurus
 
 
 def siaga_level(cm, limits):
@@ -315,11 +316,14 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
 
     Batas siaga (`limits` = {3: cm, 2: cm, 1: cm}) hanya ditandai kecil di sisi kanan, dan hanya yang
     dekat dengan data; batas yang jauh di atas tidak ditandai supaya garis TMA tidak gepeng (jaraknya
-    ada di kartu detail). Garis aktual dihaluskan (spline) supaya tangga 10 cm sensor tidak terlihat kaku.
+    ada di kartu detail). Garis aktual dihaluskan (spline) supaya tangga 10 cm sensor tidak terlihat kaku,
+    kecuali untuk rentang panjang (1 bulan, 1 tahun per jam): di sana spline berat dan tangganya tak terlihat.
     """
     limits = limits or {}
     fig = go.Figure()
     actual = levels[station].dropna() if station in levels.columns else pd.Series(dtype=float)
+    line = ({"shape": "spline", "smoothing": 0.6} if len(actual) <= SPLINE_MAX_POINTS
+            else {"shape": "linear", "width": 1.5})
     fc = forecast[forecast["station"] == station].sort_values("forecast_time")
     bottom, top, marks = _y_frame(actual, fc, limits)
 
@@ -329,7 +333,7 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
                                  hoverinfo="skip", showlegend=False, name="Dasar"))
         fig.add_trace(go.Scatter(x=actual.index, y=actual, mode="lines", name="Aktual", fill="tonexty",
                                  fillcolor="rgba(29,95,191,0.10)",
-                                 line={"color": LEVEL, "width": 2.5, "shape": "spline", "smoothing": 0.6},
+                                 line={"color": LEVEL, "width": 2.5, **line},
                                  hovertemplate="TMA %{y:.1f} cm<extra></extra>"))
 
     x_end = actual.index.max() if len(actual) else None
@@ -381,12 +385,15 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
 
 
 def _time_ticks(start, end, hourly):
-    """Tanda sumbu waktu berbahasa Indonesia: tengah malam diberi tanggal, jam lain hanya jamnya."""
+    """Tanda sumbu waktu berbahasa Indonesia: tengah malam diberi tanggal, jam lain hanya jamnya;
+    rentang lebih dari dua bulan ditandai per awal bulan."""
     span = end - start
-    if hourly:
-        step = "6h" if span <= pd.Timedelta(hours=36) else "24h"
-        stamps = pd.date_range(start.ceil(step), end, freq=step)
+    if hourly and span <= pd.Timedelta(hours=36):
+        stamps = pd.date_range(start.ceil("6h"), end, freq="6h")
         return [(t, _day_label(t) if t.hour == 0 else f"{t.hour:02d}:00") for t in stamps]
+    if span > pd.Timedelta(days=60):
+        return [(t, f"{BULAN[t.month - 1]} {t.year}" if t.month == 1 else BULAN[t.month - 1])
+                for t in pd.date_range(start.ceil("D"), end, freq="MS")]
     step = "D" if span <= pd.Timedelta(days=10) else "7D"
     return [(t, _day_label(t)) for t in pd.date_range(start.ceil("D"), end, freq=step)]
 

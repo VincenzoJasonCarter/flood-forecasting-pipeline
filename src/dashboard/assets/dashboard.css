@@ -1,10 +1,16 @@
 /* Dashboard: achromatic ledger, no-sidebar shell. Dash serves everything in assets/ automatically.
  *
- * One centred column, max 1180px, 24px side padding below that. One gap (12px) everywhere.
- *   brief : the downloadable report in one card, above the map: pos | main reason | action
- *   row A : map 5fr | station 7fr          -> (1180 - 12) * 5/12 + 12 + (1180 - 12) * 7/12 = 1180
- *   station card: head with the two KPIs, chart, then limits | forecast in two columns
- *   board : full width below; clicking a row or a map dot picks the station the chart shows
+ * One centred column, max 1180px, 24px side padding below that. One gap (12px) everywhere. Two pages,
+ * switched by the nav in the top bar:
+ *   Ringkasan (/)
+ *     row A : map 7fr | summary 5fr; the horizon control sits in the map's head, model and data time are
+ *             small text at the foot of the summary
+ *     station card: head with the two KPIs, then pos dropdown | range filter | link to the detail page,
+ *             chart; a map dot picks the pos too
+ *     brief : the downloadable report in one card: pos | main reason | action
+ *   Detail pos (/pos?nama=)
+ *     board : one link per pos, the chosen one filled grey
+ *     row A : map with the pos's downstream shaded 7fr | limits, forecast, downstream list 5fr
  * The chrome is ink and grey. Colour goes only on data: the water-level line in blue, and the
  * Siaga status (dots, board cells, chart zones) in its own amber/orange/red. */
 
@@ -33,6 +39,13 @@
   --pad: 20px;
   --row-height: 44px;
   --font: "Geist", Inter, system-ui, sans-serif;
+  /* dcc.Dropdown (Dash 4) reads these */
+  --Dash-Fill-Inverse-Strong: var(--surface);
+  --Dash-Fill-Interactive-Strong: var(--text);
+  --Dash-Fill-Interactive-Weak: var(--active);
+  --Dash-Stroke-Strong: var(--control);
+  --Dash-Text-Strong: var(--text);
+  --Dash-Text-Weak: var(--muted);
 }
 
 * { box-sizing: border-box; }
@@ -47,7 +60,16 @@ button { font: inherit; }
 .column { max-width: 1228px; margin: 0 auto; padding: 0 24px; }
 .topbar { height: 48px; }
 .bar { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.bar-left { display: flex; align-items: center; gap: 24px; min-width: 0; }
 .brand-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nav { display: flex; gap: 2px; }
+.nav-link {
+  display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: var(--radius-control);
+  color: var(--muted); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap;
+}
+.nav-link:hover { color: var(--text); }
+.nav-link.on { color: var(--text); background: var(--active); }
+.nav-link:focus-visible, .to-detail:focus-visible, .bd-row:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
 .mark { width: 22px; height: 22px; flex: none; }
 .brand { font-weight: 500; font-size: 15px; white-space: nowrap; }
 .scope { color: var(--muted); font-size: 13px; white-space: nowrap; }
@@ -62,11 +84,11 @@ button { font: inherit; }
 .btn:active { background: #cfcfcf; }
 .btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
-main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direction: column; gap: var(--gap); }
-.title-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 12px; }
-.title-text { min-width: 0; }
-.title-row h1 { font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -0.01em; }
-.finding { margin-top: 4px; color: var(--muted); font-size: 15px; line-height: 22px; max-width: 90ch; }
+main.column { padding-top: 20px; padding-bottom: 12px; display: flex; flex-direction: column; gap: var(--gap); }
+
+/* pos picker in the chart card */
+.pick-wrap { display: flex; align-items: center; gap: 10px; }
+.pick { width: 240px; font-size: 14px; }
 
 /* horizon control: a neutral segmented track */
 .seg-wrap { display: flex; align-items: center; gap: 10px; flex: none; }
@@ -82,12 +104,10 @@ main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direc
 .seg label.selected, .seg label.selected span { color: var(--text) !important; font-weight: 500; }
 
 /* every RadioItems: hide the native circle, keep it focusable */
-.seg label > span:first-child, .board label > span:first-child {
+.seg label > span:first-child {
   position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0;
 }
-.seg label:has(.opt-input:focus-visible), .board label:has(.opt-input:focus-visible) {
-  outline: 2px solid var(--text); outline-offset: -2px;
-}
+.seg label:has(.opt-input:focus-visible) { outline: 2px solid var(--text); outline-offset: -2px; }
 
 /* cards */
 .card {
@@ -110,11 +130,19 @@ main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direc
 .legend { display: flex; gap: 14px; color: var(--muted); font-size: 13px; white-space: nowrap; padding-top: 3px; flex-wrap: wrap; justify-content: flex-end; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 
-/* summary: one card split into five cells by 1px rules; the first answers the screen's question */
-.summary { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1fr; flex-direction: row; }
-.summary > .empty { grid-column: 1 / -1; margin: var(--pad); }
-.sm-cell { padding: 16px var(--pad) 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.sm-cell + .sm-cell { border-left: 1px solid var(--border); }
+/* summary, right of the map: title and finding, three stacked cells sharing the map's height, then model
+ * and data time as small print. The first cell answers the screen's question */
+.exec-head { padding: 18px var(--pad) 16px; }
+.exec-head h1 { font-size: 20px; line-height: 28px; font-weight: 500; letter-spacing: -0.01em; }
+.finding { margin-top: 6px; font-size: 14px; line-height: 21px; }
+.summary { flex: 1; display: grid; grid-auto-rows: 1fr; border-top: 1px solid var(--border); }
+.summary > .empty { margin: var(--pad); }
+.sm-cell { padding: 14px var(--pad); display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+.sm-cell + .sm-cell { border-top: 1px solid var(--border); }
+.meta {
+  padding: 10px var(--pad) 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column;
+  color: var(--muted); font-size: 12px; line-height: 17px; font-variant-numeric: tabular-nums;
+}
 .sm-label { color: var(--muted); font-size: 13px; line-height: 18px; }
 .sm-value { font-size: 22px; line-height: 30px; font-weight: 500; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .sm-value.lead { font-size: 30px; line-height: 38px; }
@@ -177,23 +205,20 @@ main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direc
 
 /* row A */
 .row { display: grid; gap: var(--gap); }
-.row-a { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+.row-a { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
 
-/* board: one row per pos on a 44px pitch, grouped by aliran; selection = the grey active fill */
+/* board: one link per pos on a 44px pitch, grouped by aliran; hover = the raised fill */
 .bd-line { display: flex; align-items: center; width: 100%; }
 .bd-head { height: 34px; padding: 0 var(--pad); color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--rule); }
 .bd-head .bd-num.on { color: var(--text); font-weight: 500; }
 .board { display: flex; flex-direction: column; padding: 4px 8px 10px; }
-.board label {
+.bd-row {
   display: flex; align-items: center; min-height: var(--row-height); padding: 0 12px; border-radius: 6px;
-  cursor: pointer; position: relative; margin: 0;
+  color: var(--text); text-decoration: none;
 }
-.board label, .board label.selected, .board label:hover { color: var(--text); }
-.board label:hover { background: var(--raised); }
-.board label.selected { background: var(--active); }
-.board label:has(.opt-input:disabled) { min-height: 0; padding-top: 12px; padding-bottom: 4px; cursor: default; background: none; }
-.board label > span:last-child { display: block; flex: 1; min-width: 0; }
-.bd-group { color: var(--muted); font-size: 13px; }
+.bd-row:hover { background: var(--raised); }
+.bd-row.on { background: var(--active); }
+.bd-group { color: var(--muted); font-size: 13px; padding: 12px 12px 4px; }
 .bd-name { flex: 0 0 220px; min-width: 0; display: flex; align-items: center; gap: 10px; }
 .bd-head .bd-name { display: block; }
 .bd-gauge { flex: 1; min-width: 0; padding: 0 40px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -207,23 +232,25 @@ main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direc
 .bd-num.s1 .bd-val { background: var(--s1-bg); color: var(--s1-ink); }
 
 /* map */
-/* tinggi tetap, bukan ikut kartu: kartu setinggi panel pos di sebelahnya, yang panjangnya beda per pos
-   (Waduk Pluit pendek), jadi peta yang mengisi kartu akan mengecil dan bergeser tiap ganti pos.
+/* tinggi tetap, bukan ikut kartu: peta yang menentukan tinggi baris, ringkasan di sebelahnya menyesuaikan.
    !important karena dcc.Graph memasang style="height: 100%" langsung di elemennya */
 .map-card .dash-graph { flex: none; height: 560px !important; position: relative; border-top: 1px solid var(--rule); }
 .map-card .js-plotly-plot { position: absolute; inset: 0; }
 .map-card .js-plotly-plot, .map-card .plot-container, .map-card .svg-container { height: 100% !important; }
 
-/* station panel, right of the map: KPIs in the head, chart, then limits | forecast */
+/* station card on the overview: KPIs in the head, pos | range | detail link, chart */
 .kpis { display: flex; gap: 28px; flex: none; }
-.station-card .dash-graph { position: relative; min-height: 360px; padding: 12px 8px 8px; border-top: 1px solid var(--rule); }
+.chart-bar { display: flex; align-items: center; gap: 12px 24px; padding: 0 var(--pad) 12px; flex-wrap: wrap; }
+.range-note { color: var(--muted); font-size: 13px; }
+.to-detail { margin-left: auto; color: var(--muted); font-size: 13px; font-weight: 500; text-decoration: none; padding: 6px 0; }
+.to-detail:hover { color: var(--text); }
+.chart-wrap { position: relative; }
+.station-card .dash-graph { position: relative; min-height: 380px; padding: 12px 8px 8px; border-top: 1px solid var(--rule); }
 .station-card .js-plotly-plot { position: absolute; inset: 12px 8px 8px; }
 .station-card .js-plotly-plot, .station-card .plot-container, .station-card .svg-container { height: 100% !important; }
-.detail {
-  border-top: 1px solid var(--rule); padding: 16px var(--pad) 18px;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px;
-}
-.detail .empty { margin: 0; grid-column: 1 / -1; }
+/* limits, forecast and downstream list, right of the map on the detail page: one column */
+.detail { padding: 16px var(--pad) 18px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.detail .empty { margin: 0; }
 .k-label { color: var(--muted); font-size: 13px; }
 .k-value { font-size: 22px; line-height: 30px; font-weight: 500; }
 .k-value .unit { font-size: 14px; }
@@ -235,24 +262,23 @@ main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direc
 .kv-v { text-align: right; min-width: 72px; font-weight: 500; white-space: nowrap; }
 .kv-d { min-width: 96px; text-align: right; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .kv-d .rise { color: var(--text); font-weight: 500; }
-.block.hilir { grid-column: 1 / -1; }
 .hl-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; padding: 7px 0;
   border-top: 1px solid var(--rule); font-size: 13px; line-height: 19px; }
 .hl-kec { font-weight: 500; }
 .hl-kel { color: var(--muted); }
 .hl-note { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 17px; }
 
-.sources { color: var(--muted); font-size: 12px; line-height: 18px; padding-top: 8px; }
+.sources { color: var(--muted); font-size: 12px; line-height: 18px; padding-top: 8px; padding-bottom: 32px; }
 
-/* tablet: the two columns stack; the summary keeps its lead on its own line */
+/* tablet: the map and summary stack (map first); the summary's cells sit side by side */
 @media (max-width: 1100px) {
   .row-a { grid-template-columns: 1fr; }
-  .summary { grid-template-columns: repeat(4, 1fr); }
-  .sm-cell:first-child { grid-column: 1 / -1; border-bottom: 1px solid var(--border); }
-  .sm-cell:nth-child(2) { border-left: 0; }
+  .summary { grid-template-columns: 1.3fr 1fr 1fr; grid-auto-rows: auto; }
+  .sm-cell + .sm-cell { border-top: 0; border-left: 1px solid var(--border); }
+  .detail { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }  /* full width again */
+  .detail .empty, .block.hilir { grid-column: 1 / -1; }
   .map-card .dash-graph { height: 420px !important; flex: none; }
-  .title-row { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .brief-card .card-head, .board-card .card-head { flex-direction: column; gap: 10px; }
+  .map-card .card-head, .brief-card .card-head, .board-card .card-head { flex-direction: column; gap: 10px; }
   .head-right { width: 100%; justify-content: space-between; align-items: center; }
   .head-right .legend { flex: 1; }
   .legend { justify-content: flex-start; }
@@ -271,23 +297,32 @@ main.column { padding-top: 28px; padding-bottom: 32px; display: flex; flex-direc
 @media (max-width: 640px) {
   .column { padding: 0 16px; }
   main.column { padding-top: 20px; }
-  .scope, .stamp { display: none; }
-  .title-row h1 { font-size: 22px; line-height: 28px; }
+  .scope, .stamp, .brand { display: none; }
+  .bar-left { gap: 12px; }
+  .nav-link { padding: 0 10px; }
+  .pick-wrap { width: 100%; }
+  .pick { flex: 1; width: auto; }
+  .to-detail { margin-left: 0; }
+  .exec-head { padding: 14px 16px 12px; }
   .seg-wrap { width: 100%; }
   .seg-label { display: none; }
   .seg { flex: 1; }
   .seg label { flex: 1; justify-content: center; height: 40px; padding: 0 4px; }
   .summary { grid-template-columns: repeat(2, 1fr); }
   .sm-cell { padding: 12px 14px 14px; }
-  .sm-cell:nth-child(n+2) { border-left: 0; border-top: 1px solid var(--border); }
-  .sm-cell:nth-child(odd):not(:first-child) { border-left: 1px solid var(--border); }
+  .sm-cell:first-child { grid-column: 1 / -1; }
+  .sm-cell + .sm-cell { border-left: 0; border-top: 1px solid var(--border); }
+  .sm-cell:nth-child(3) { border-left: 1px solid var(--border); }
+  .meta { padding: 10px 16px 12px; }
   .sm-value { font-size: 20px; line-height: 28px; }
   .sm-value.lead { font-size: 26px; line-height: 34px; }
   .card-head { flex-direction: column; gap: 8px; padding: 14px 16px 10px; }
   .legend { justify-content: flex-start; }
   .bd-head { padding: 0 16px; }
   .board { padding: 4px 4px 8px; }
-  .board label { padding: 0 8px; }
+  .bd-row { padding: 0 8px; }
+  .bd-group { padding: 12px 8px 4px; }
+  .chart-bar { padding: 0 16px 10px; }
   .bd-num { width: 52px; font-size: 13px; }
   .bd-name { gap: 8px; }
   .bd-title .full { display: none; }

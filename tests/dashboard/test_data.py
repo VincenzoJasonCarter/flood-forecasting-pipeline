@@ -35,3 +35,20 @@ def test_failure_without_any_snapshot_raises_until_the_ttl_passes(cache):
         with pytest.raises(RuntimeError):
             data.load_snapshot()
     assert len(calls) == 1
+
+
+def test_history_is_read_once_per_station_and_range_within_the_refresh(monkeypatch):
+    import pandas as pd
+    monkeypatch.setattr(data, "_history", {})
+    monkeypatch.setattr(data, "_get_client", lambda: None)
+    calls = []
+
+    def run(_client, name, **kwargs):
+        calls.append((name, kwargs["columns"], kwargs["params"][0].value))
+        return pd.DataFrame({"datetime": pd.date_range("2026-01-01", periods=3, freq="h")[::-1], "A": [3.0, 2.0, 1.0]})
+    monkeypatch.setattr(data, "run_query", run)
+    first = data.load_history("A", 720)
+    assert list(first["A"]) == [1.0, 2.0, 3.0]  # urut naik
+    data.load_history("A", 720)
+    data.load_history("A", 8760)
+    assert calls == [("dashboard/station_history", ["A"], 720), ("dashboard/station_history", ["A"], 8760)]

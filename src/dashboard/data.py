@@ -44,6 +44,7 @@ _QUERY_TIMEOUT_S = 60  # halaman lebih baik cepat menyajikan snapshot lama darip
 _lock = threading.Lock()  # satu pembacaan BigQuery pada satu waktu
 _client = None
 _cache = {"at": float("-inf"), "value": None, "error": None}
+_history = {}  # (pos, langkah) -> (waktu baca, DataFrame); filter rentang grafik di halaman detail
 
 
 def _get_client():
@@ -71,6 +72,23 @@ def _recent(client, table, n):
 def load_levels(client):
     """TMA aktual HISTORY_STEPS langkah terakhir, index datetime urut naik."""
     return _recent(client, STATION_FEATURES_TABLE, HISTORY_STEPS)
+
+
+def load_history(station, steps):
+    """TMA satu pos, `steps` langkah terakhir (kolom = nama pos), untuk rentang grafik di atas history_steps.
+
+    Terpisah dari snapshot supaya setahun data per jam tidak ikut dibaca tiap refresh; di-cache per
+    (pos, langkah) selama refresh_seconds. Error dibiarkan naik ke pemanggil.
+    """
+    key = (station, steps)
+    hit = _history.get(key)
+    if hit and time.monotonic() - hit[0] < REFRESH_SECONDS:
+        return hit[1]
+    df = run_query(_get_client(), "dashboard/station_history", table=STATION_FEATURES_TABLE, columns=[station],
+                   params=[scalar_param("n", "INT64", steps)], timeout=_QUERY_TIMEOUT_S)
+    df = to_naive_datetime_index(df).sort_index()
+    _history[key] = (time.monotonic(), df)
+    return df
 
 
 def load_rain(client):

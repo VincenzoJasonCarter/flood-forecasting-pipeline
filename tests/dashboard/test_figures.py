@@ -253,3 +253,11 @@ def test_gauge_places_now_and_peak_against_the_station_own_siaga_bands():
     assert all(a[2] == b[1] for a, b in zip(g["zones"], g["zones"][1:]))  # zona bersambung tanpa celah
     assert 0 < g["now"] < g["zones"][1][1] < g["peak"] < g["zones"][2][1]  # 13 di Normal, puncak 23 di Siaga 3
     assert gauge({**row, "limits": {}}) is None
+
+
+def test_station_figure_over_a_year_marks_months_and_draws_a_straight_line():
+    idx = pd.date_range(AS_OF - pd.Timedelta(days=365), AS_OF, freq="h")
+    levels = pd.DataFrame({"A": [10.0] * len(idx)}, index=idx)
+    fig = station_figure(levels, _forecast().iloc[0:0], "A")
+    assert _trace(fig, "Aktual").line.shape == "linear"
+    assert list(fig.layout.xaxis.ticktext)[:2] == ["Feb", "Mar"] and "Jan 2026" in fig.layout.xaxis.ticktext
