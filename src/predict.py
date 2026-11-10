@@ -12,8 +12,12 @@ Pemakaian:
 """
 
 import argparse
+import logging
 
+from logging_setup import configure_logging
 from prediction import forecast_latest
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -26,6 +30,7 @@ def main():
                          help="Simpan hasil ke BigQuery (tables.forecast_output).")
     parser.add_argument("--csv", default=None, help="Simpan hasil ke file CSV.")
     args = parser.parse_args()
+    configure_logging()
 
     forecast_df, model_name = forecast_latest(
         station=args.station, horizons=args.horizon, write_bq=args.write_bq,
@@ -36,7 +41,7 @@ def main():
 
     if args.csv:
         forecast_df.to_csv(args.csv, index=False)
-        print(f"\nDisimpan ke {args.csv}")
+        logger.info("Disimpan ke %s", args.csv)
 
 
 if __name__ == "__main__":

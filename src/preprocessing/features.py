@@ -5,9 +5,13 @@ Dipakai oleh pipeline preprocessing (training) dan package prediction
 (serving), supaya fitur keduanya dihitung oleh kode yang sama.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+
+logger = logging.getLogger(__name__)
 
 # Kolom kalender siklik -> periodenya. Encoding sin/cos membuat jam 23 dan
 # jam 0 (Desember dan Januari, Minggu dan Senin) berdekatan, dan skalanya
@@ -58,7 +62,7 @@ def rain_features(rain, cells_by_station, accum_hours, column_map, index):
         catchment = rain[cells].mean(axis=1).reindex(index)
         n_missing = int(catchment.isna().sum())
         if n_missing:
-            print(f"  [{station}] {n_missing:,} jam tanpa data hujan diisi 0")
+            logger.info("[%s] %s jam tanpa data hujan diisi 0", station, f"{n_missing:,}")
         catchment = catchment.fillna(0.0)
         cols_by_station[station] = []
         for hours in accum_hours:

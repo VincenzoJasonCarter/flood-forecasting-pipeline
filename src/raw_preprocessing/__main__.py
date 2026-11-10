@@ -13,6 +13,8 @@ Pemakaian (dari src/):
 import argparse
 from pathlib import Path
 
+from logging_setup import configure_logging
+
 from . import run
 from .config import GRANULARITIES, GRANULARITY, START_DATE
 
@@ -32,6 +34,7 @@ def main():
                              "(--start diabaikan kalau output sudah ada), ganti hari-hari overlap dengan hasil "
                              "baru, lalu gabungkan. Bersama --write-bq: output lama dibaca dari tabel BigQuery.")
     args = parser.parse_args()
+    configure_logging()
 
     run(start=args.start, end=args.end, granularity=args.granularity,
         output_path=args.output, write_bq=args.write_bq, incremental=args.incremental)

@@ -26,7 +26,7 @@ help:
 	@echo   raw-preprocess-bq  same, and write tables.station_features_GRANULARITY to BigQuery
 	@echo   raw-preprocess-incremental  re-crawl last days from max date in BigQuery, merge, rewrite table
 	@echo   rainfall           Open-Meteo hourly rain per grid cell to artifacts/rainfall_hourly.parquet
-	@echo   rainfall-survey    step 1: all cells, one wet season, to artifacts/rainfall_survey.parquet
+	@echo   rainfall-survey    step 1: all cells, one wet season, to artifacts/rainfall_survey.parquet + tables.rainfall_survey_hourly
 	@echo   rainfall-rank      step 2: rank cells per station by lagged correlation, train period only
 	@echo   rainfall-bq        step 3: full history of the TOP=3 best cells per station to tables.rainfall_hourly
 	@echo   rainfall-incremental  re-fetch last days from max date in BigQuery, merge, rewrite table
@@ -61,7 +61,7 @@ rainfall:
 	cd src && uv run python -m rainfall $(ARGS)
 
 rainfall-survey:
-	cd src && uv run python -m rainfall --survey $(ARGS)
+	cd src && uv run python -m rainfall --survey --write-bq $(ARGS)
 
 rainfall-bq:
 	cd src && uv run python -m rainfall --select-top $(TOP) --write-bq $(ARGS)

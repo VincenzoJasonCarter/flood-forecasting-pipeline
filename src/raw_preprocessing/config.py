@@ -43,14 +43,30 @@ IQR_K = 1.5
 Z_THRESHOLD = 3
 PHYSICAL_MIN_LEVEL = -50  # cm
 PHYSICAL_MAX_JUMP = 50    # cm per jam
-SPIKE_INTERP_LIMIT = 3
 
-# Notebook asli menandai outlier tapi mem-pivot water_level mentah (bukan yang
-# sudah dibersihkan), jadi station_features yang dipakai training TIDAK
-# membuang spike. Default False mengikuti notebook — tapi perhatikan bahwa
-# untuk granularity daily, max harian sensitif terhadap spike: satu spike
-# 1 jam jadi nilai hari itu.
-CLEAN_ISOLATED_SPIKES = False
+# Pembersihan glitch sensor sebelum pengisian gap (outliers.clean_glitches).
+# Notebook asli TIDAK membersihkan apa pun (outlier hanya ditandai), padahal
+# glitch seperti -1801 di Waduk Pluit atau 1000 di Pos Depok menarik range
+# MinMaxScaler sehingga sinyal normal tergencet ke rentang yang sangat sempit.
+# Set False untuk mereproduksi station_features versi notebook.
+CLEAN_GLITCHES = True
+
+# Range nilai yang masuk akal (cm, inklusif); di luar range -> NaN. Sungai
+# tidak bisa di bawah 0. Muka air Waduk Pluit normalnya sekitar -180; nilai
+# +160..+200 di data adalah tanda yang terbalik (banjir 2025-01-29 hanya
+# memuncak di +30).
+DEFAULT_VALID_RANGE = (0.0, float("inf"))
+VALID_RANGE = {"Waduk Pluit": (-300.0, 100.0)}
+
+# Spike: run 1..SPIKE_MAX_LEN jam yang menyimpang > SPIKE_MIN_DEV cm dari
+# KEDUA tetangganya ke arah yang sama, dengan tetangga yang datar dan saling
+# dekat — glitch lalu balik ke level semula (detail: outliers.spike_mask).
+# Banjir asli (tetangganya sedang naik/surut) tidak memenuhi syarat ini.
+# SPIKE_MAX_LEN = 3 sudah membuang puncak banjir Katulampa 2022-10-09
+# (60 -> 220 -> 200 -> 140 -> 80); glitch di data mentah hampir selalu 1 jam.
+SPIKE_MIN_DEV = 50        # cm
+SPIKE_MAX_LEN = 2         # jam
+SPIKE_MAX_NEIGHBOR_GAP = GAP_LIMIT  # jam; tetangga lebih jauh dari ini tidak dipakai
 
 WRITE_DISPOSITION = "WRITE_TRUNCATE"
 

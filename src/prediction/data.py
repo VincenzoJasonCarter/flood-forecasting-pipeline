@@ -2,6 +2,7 @@
 
 import json
 
+from bq import run_query
 from preprocessing.bigquery_io import load_rainfall_cells, load_station_features
 from preprocessing.features import apply_rain_scalers, encode_calendar, rain_features
 from preprocessing.imputation import compute_hourly_medians, fill_nan_hourly_median, medians_from_json
@@ -14,13 +15,10 @@ from .scalers import load_scalers
 
 
 def load_metadata(client):
-    row = client.query(f"""
-        SELECT payload
-        FROM `{METADATA_TABLE}`
-        ORDER BY saved_at DESC
-        LIMIT 1
-    """).to_dataframe().iloc[0]
-    return json.loads(row["payload"])
+    rows = run_query(client, "prediction/metadata_latest", table=METADATA_TABLE)
+    if rows.empty:
+        raise RuntimeError(f"{METADATA_TABLE} kosong — jalankan `python -m preprocessing` dulu.")
+    return json.loads(rows.iloc[0]["payload"])
 
 
 def load_recent_scaled(client, lookback=LOOKBACK, use_rain=True):

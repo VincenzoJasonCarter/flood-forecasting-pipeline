@@ -2,11 +2,13 @@
 
 import pickle
 
+from bq import run_query
+
 from .config import SCALERS_TABLE
 
 
 def load_scalers(client):
-    rows = client.query(f"SELECT station, scaler_blob FROM `{SCALERS_TABLE}`").to_dataframe()
+    rows = run_query(client, "prediction/scalers", table=SCALERS_TABLE)
     if rows.empty:
         raise RuntimeError(f"{SCALERS_TABLE} kosong — jalankan `python -m preprocessing` dulu.")
     return {row["station"]: pickle.loads(row["scaler_blob"]) for _, row in rows.iterrows()}

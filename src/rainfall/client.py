@@ -1,5 +1,6 @@
 """HTTP client for the Open-Meteo Historical Forecast API (hourly precipitation)."""
 
+import logging
 import time
 from collections import deque
 from datetime import date
@@ -9,6 +10,8 @@ import requests
 from .config import (API_URL, CELLS_PER_REQUEST, DAYS_PER_REQUEST, HOUR_BUDGET, MINUTE_BUDGET, MODEL,
                      START_DATE, TIMEZONE, VARIABLE)
 from .frames import date_chunks, dedupe_cells, responses_to_frame
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimited(RuntimeError):
@@ -58,8 +61,8 @@ class Throttle:
                 self.history.append((now, weight))
                 return
             if delay > 90:
-                print(f"  kuota per jam hampir habis, menunggu {delay / 60:.0f} menit "
-                      f"(Ctrl+C untuk berhenti; data yang sudah lengkap tetap disimpan)")
+                logger.warning("kuota per jam hampir habis, menunggu %.0f menit "
+                               "(Ctrl+C untuk berhenti; data yang sudah lengkap tetap disimpan)", delay / 60)
             self.sleep(delay + 1)
 
 
@@ -89,7 +92,7 @@ def fetch(session, throttle, points, start, end, max_retries=5):
         try:
             r = session.get(API_URL, params=params, timeout=120)
         except requests.RequestException as e:
-            print(f"  retry {start}..{end}: {e}")
+            logger.warning("retry %s..%s: %s", start, end, e)
             attempt += 1
             time.sleep(2 ** attempt)
             continue
@@ -97,11 +100,11 @@ def fetch(session, throttle, points, start, end, max_retries=5):
             reason = _reason(r)
             if "Minutely" not in reason:  # kuota per jam/hari: tidak ditunggu di sini
                 raise RateLimited(reason)
-            print("  kuota per menit habis, menunggu 60 detik")
+            logger.warning("kuota per menit habis, menunggu 60 detik")
             time.sleep(61)
             continue
         if r.status_code >= 500:
-            print(f"  retry {start}..{end}: HTTP {r.status_code}")
+            logger.warning("retry %s..%s: HTTP %s", start, end, r.status_code)
             attempt += 1
             time.sleep(2 ** attempt)
             continue

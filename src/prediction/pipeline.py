@@ -15,10 +15,9 @@ Alur:
 
 import pandas as pd
 
-from preprocessing.bigquery_io import authenticate, get_client
-
 from .architectures import DEVICE
 from .best_model import load_best_model
+from .client import authenticate, get_client
 from .config import HORIZONS, LOOKBACK
 from .data import load_recent_scaled
 from .features import feature_cols_for, split_model_name

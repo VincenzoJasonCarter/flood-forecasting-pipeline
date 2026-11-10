@@ -31,3 +31,6 @@ Thumbs.db
 # Local raw_preprocessing output
 artifacts/
 *.parquet
+
+# Training notebooks
+notebooks_training/
