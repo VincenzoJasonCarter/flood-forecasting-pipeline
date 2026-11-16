@@ -8,6 +8,7 @@ menggambarnya. Ambang dan teks tindakan dari `laporan:` di config/dashboard.yaml
 import pandas as pd
 
 from .figures import BULAN, SIAGA_NAME, hilir_kecamatan, rain_totals, station_rain
+from .overview import status_banner
 from .pdf import render
 
 STALE_STEPS = 2  # data lebih tua dari sekian langkah dianggap basi
@@ -209,6 +210,15 @@ def report_content(snap, rows, horizons, now, finding, cfg, sources=""):
     if falling:
         bullets.append(f"Surut dalam {cfg['trend_steps']} {unit} terakhir: {', '.join(falling)}.")
 
+    graded = [r for r in rows if 0 in r["status_by_h"]]
+    info = snap["model"] or {}
+    kpis = {"levels": [r["status_by_h"][0] for r in graded], "normal": sum(r["status_by_h"][0] == 4 for r in graded),
+            "off": [f"{r['label']} {SIAGA_NAME[r['status_by_h'][0]]}" for r in graded if r["status_by_h"][0] < 4],
+            "rain_mean": float(totals.mean()) if len(totals) else None,
+            "rain_max": float(totals.max()) if len(totals) else None, "rain_cells": len(totals),
+            "metric": str(info.get("selection_metric") or "").upper(), "stat": info.get("stat", "median"),
+            "stat_value": info.get("stat_value"),
+            "model": str(info["best_model"]).upper() if info.get("best_model") else _model_line(snap)}
     meta = [f"Data per {_stamp(as_of)} WIB" if as_of is not None else "Data belum ada",
             f"dibuat {_stamp(now)} WIB"]
     if horizons:
@@ -217,6 +227,9 @@ def report_content(snap, rows, horizons, now, finding, cfg, sources=""):
         "title": "Laporan pantauan banjir", "stamp": _stamp(as_of if as_of is not None else now), "meta": meta,
         "severest": min((s for r in rows for s in r["status_by_h"].values()), default=None),
         "span": f"sampai +{horizons[-1]} {unit}" if horizons else "sekarang",
+        "attention_title": "Perlu tindakan" if any(min(a["row"]["status_by_h"].values(), default=4) < 4
+                                                   for a in needed) else "Perlu dipantau",
+        "falling": falling, "banner": status_banner(rows, horizons, unit, finding), "kpis": kpis, "rise_cm": cfg["rise_cm"],
         "finding": finding, "bullets": bullets, "attention": needed, "assessments": assessments,
         "horizons": list(horizons), "unit": unit, "trend_steps": cfg["trend_steps"],
         "notes": _notes(snap, rows, now, as_of, cfg), "sources": sources,

@@ -45,6 +45,8 @@ _lock = threading.Lock()  # satu pembacaan BigQuery pada satu waktu
 _client = None
 _cache = {"at": float("-inf"), "value": None, "error": None}
 _history = {}  # (pos, langkah) -> (waktu baca, DataFrame); filter rentang grafik di halaman detail
+_refresher = {"on": False}  # True setelah start_refresher: callback tidak pernah menunggu BigQuery lagi
+_start_lock = threading.Lock()
 
 
 def _get_client():
@@ -82,7 +84,8 @@ def load_history(station, steps):
     """
     key = (station, steps)
     hit = _history.get(key)
-    if hit and time.monotonic() - hit[0] < REFRESH_SECONDS:
+    # dengan pembaru latar belakang, entri yang sudah lewat umur tetap disajikan (pembaru menyegarkannya)
+    if hit and (_refresher["on"] or time.monotonic() - hit[0] < REFRESH_SECONDS):
         return hit[1]
     df = run_query(_get_client(), "dashboard/station_history", table=STATION_FEATURES_TABLE, columns=[station],
                    params=[scalar_param("n", "INT64", steps)], timeout=_QUERY_TIMEOUT_S)
@@ -155,7 +158,7 @@ def load_snapshot(force=False):
     callback tidak mencoba ulang. Selama satu callback membaca, callback lain langsung memakai snapshot
     lama alih-alih antre di belakangnya; hanya pembacaan pertama yang ditunggu.
     """
-    if not force and not _expired():
+    if not force and (not _expired() or (_refresher["on"] and _cache["value"] is not None)):
         return _served()
     if not _lock.acquire(blocking=_cache["value"] is None):
         return _cache["value"]
@@ -171,3 +174,38 @@ def load_snapshot(force=False):
         return _served()
     finally:
         _lock.release()
+
+
+def _warm_history(steps_list):
+    """Isi cache histori semua pos untuk rentang grafik panjang, supaya klik rentang tidak menunggu BigQuery."""
+    jobs = [(station, steps) for station in STATIONS for steps in steps_list if steps > HISTORY_STEPS]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for job, future in [(job, pool.submit(load_history, *job)) for job in jobs]:
+            try:
+                future.result()
+            except Exception:
+                logger.exception("Gagal memanaskan histori %s", job)
+
+
+def _refresh_loop(steps_list):
+    while True:
+        try:
+            load_snapshot(force=True)
+            _warm_history(steps_list)
+        except Exception:
+            logger.exception("Pembaruan latar belakang gagal")
+        time.sleep(REFRESH_SECONDS)
+
+
+def start_refresher(history_steps=()):
+    """Baca BigQuery di thread latar belakang: sekarang, lalu tiap refresh_seconds.
+
+    Callback Dash lalu hanya membaca snapshot yang sudah di memori (tanpa menunggu BigQuery), dan histori
+    rentang panjang ikut dipanaskan. Hanya yang pertama (sebelum ada data) yang ditunggu pengguna, dan itu
+    sudah berjalan sejak server mulai. Aman dipanggil berulang.
+    """
+    with _start_lock:
+        if _refresher["on"]:
+            return
+        _refresher["on"] = True
+    threading.Thread(target=_refresh_loop, args=(tuple(history_steps),), daemon=True, name="bq-refresher").start()

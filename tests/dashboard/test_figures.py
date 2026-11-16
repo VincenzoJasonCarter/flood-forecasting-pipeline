@@ -1,7 +1,7 @@
 import pandas as pd
 
 from dashboard.data import STATIONS
-from dashboard.figures import (HILIR, HILIR_FILL, KECAMATAN, LEVEL, REGIONS, SIAGA_COLOR, SUNGAI, gauge,
+from dashboard.figures import (HILIR, HILIR_FILL, KECAMATAN, LEVEL, REGIONS, RIVER_SELECTED, SIAGA_COLOR, SUNGAI, gauge,
                                hilir_kecamatan, map_figure, rain_cell_coords, rain_totals, siaga_level, station_figure,
                                station_rain, station_rows)
 
@@ -173,8 +173,8 @@ def test_map_figure_shades_the_selected_station_downstream_kecamatan_and_its_riv
     shaded = [t for t in fig.data if t.fillcolor == HILIR_FILL]
     assert [t.name for t in shaded] == ["Hilir Hulu", "Hilir Hilir"]
     assert "K2, K3" in shaded[1].text and shaded[1].hoveron == "fills"
-    assert _trace(fig, "Sungai Kali A").line.color == LEVEL and _trace(fig, "Sungai Kali B").line.color != LEVEL
-    assert _trace(fig, "Hulu A").line.color == LEVEL and _trace(fig, "Hulu A").line.dash == "dot"
+    assert _trace(fig, "Sungai Kali A").line.color == RIVER_SELECTED and _trace(fig, "Sungai Kali B").line.color != RIVER_SELECTED
+    assert _trace(fig, "Hulu A").line.color == RIVER_SELECTED and _trace(fig, "Hulu A").line.dash == "dot"
     assert _trace(fig, "Sungai Kali A").line.dash == "solid"
     other = map_figure(rows, "B", regions=REGIONS_TEST, kecamatan=KEC_TEST, sungai=SUNGAI_TEST, hilir=HILIR_TEST)
     assert not [t for t in other.data if t.fillcolor == HILIR_FILL]

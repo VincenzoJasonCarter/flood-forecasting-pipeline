@@ -52,3 +52,22 @@ def test_history_is_read_once_per_station_and_range_within_the_refresh(monkeypat
     data.load_history("A", 720)
     data.load_history("A", 8760)
     assert calls == [("dashboard/station_history", ["A"], 720), ("dashboard/station_history", ["A"], 8760)]
+
+
+def test_with_the_background_refresher_a_stale_snapshot_is_served_without_waiting(cache, monkeypatch):
+    query, calls = cache
+    query([{"v": 1}, {"v": 2}])
+    monkeypatch.setattr(data, "_refresher", {"on": True})
+    assert data.load_snapshot() == {"v": 1}  # sebelum ada data, pembacaan pertama tetap ditunggu
+    data._cache["at"] = float("-inf")  # lewat umur
+    assert data.load_snapshot() == {"v": 1} and len(calls) == 1  # callback tidak memicu BigQuery
+    assert data.load_snapshot(force=True) == {"v": 2}  # tombol Muat ulang tetap membaca ulang
+
+
+def test_background_refresher_warms_long_history_only_beyond_the_snapshot(monkeypatch):
+    warmed = []
+    monkeypatch.setattr(data, "STATIONS", {"A": {}, "B": {}})
+    monkeypatch.setattr(data, "HISTORY_STEPS", 72)
+    monkeypatch.setattr(data, "load_history", lambda station, steps: warmed.append((station, steps)))
+    data._warm_history({72, 168, 720})
+    assert sorted(warmed) == [("A", 168), ("A", 720), ("B", 168), ("B", 720)]

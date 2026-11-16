@@ -102,10 +102,10 @@ def test_report_pdf_carries_the_finding_actions_and_sources_with_markup_escaped(
     pdf = build_report(_snap(), _rows(), [1, 3], AS_OF + pd.Timedelta(minutes=10), "Alfa naik <segera>", CFG,
                        sources="Sumber & lisensi")
     text = _pdf_text(pdf)
-    for expected in ("Alfa naik <segera>", "Waspada <siap>.", "Sumber & lisensi", "2 dari 3 pos perlu perhatian.",
+    for expected in ("Alfa naik <segera>", "Waspada <siap>.", "Sumber & lisensi", "2 dari 3 pos",
                      "Halaman 1 dari"):
         assert expected in text
-    assert text.index("Perlu perhatian") < text.index("Semua pos")
+    assert text.index("Perlu tindakan") < text.index("Semua pos")
 
 
 def test_report_lists_the_downstream_areas_of_stations_needing_attention():
@@ -115,7 +115,7 @@ def test_report_lists_the_downstream_areas_of_stations_needing_attention():
     a = {x["row"]["station"]: x for x in assess(_rows(), _snap(), [1, 3], cfg)}
     assert a["A"]["hilir"] == {"Kec Hulu": ["Kel Satu"], "Kec Hilir": ["Kel Dua"]} and a["B"]["hilir"] == {}
     text = _pdf_text(build_report(_snap(), _rows(), [1, 3], AS_OF + pd.Timedelta(minutes=10), "x", cfg))
-    assert "Kec Hulu: Kel Satu; Kec Hilir: Kel Dua" in text and "Wilayah hilir = perkiraan" in text
+    assert "Hilir (perkiraan): Kec Hulu, Kec Hilir" in text and "Wilayah hilir = perkiraan" in text
     assert "Wilayah hilir" not in _pdf_text(build_report(_snap(), _rows(), [1, 3], AS_OF, "x", CFG))
 
 
@@ -162,3 +162,15 @@ def test_selection_note_uses_whichever_statistic_was_stored():
         "median MAE 1.23 saat seleksi"
     assert selection_note({"selection_metric": "mae", "stat": "mean", "stat_value": 2.0}) == "mean MAE 2.00 saat seleksi"
     assert selection_note({"selection_metric": "mae"}) is None
+
+
+def test_status_banner_is_an_alert_with_the_worst_status_per_horizon_or_safe_when_all_normal():
+    from dashboard.overview import id_text, status_banner
+    rows = _rows()
+    banner = status_banner(rows, [1, 3], "jam", "Alfa naik 23.5 cm")
+    assert banner["kind"] == "alert" and banner["text"] == "Alfa naik 23,5 cm"
+    assert [w["label"] for w in banner["worst"]] == ["Sekarang", "+1 jam", "+3 jam"]
+    calm = [{**r, "status_by_h": {h: 4 for h in r["status_by_h"]}, "rising": False} for r in rows]
+    safe = status_banner(calm, [1, 3], "jam", "x")
+    assert safe["kind"] == "safe" and safe["head"].startswith("Aman")
+    assert id_text("dari 110.0 cm, 19:00") == "dari 110,0 cm, 19:00"

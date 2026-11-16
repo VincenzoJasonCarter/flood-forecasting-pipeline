@@ -12,8 +12,9 @@ MUTED = "#6b6b6b"
 GRID = "#ebebeb"
 LEVEL = "#1d5fbf"     # satu-satunya hue data: garis TMA dan prakiraannya
 FONT = '"Geist", Inter, system-ui, sans-serif'
-RIVER = "#a9c1e3"     # alur sungai pos lain; alur pos terpilih = LEVEL
-HILIR_FILL = "rgba(29,95,191,0.13)"  # kecamatan di hilir pos terpilih
+RIVER = "#a9c1e3"     # alur sungai pos lain
+RIVER_SELECTED = LEVEL  # alur sungai pos terpilih di peta
+HILIR_FILL = "rgba(29,95,191,0.30)"  # kecamatan di hilir pos terpilih
 
 
 def _bundled(name):
@@ -37,8 +38,9 @@ REGION_LABEL_AT = {  # titik label yang tidak menabrak label pos
     "Tangerang": (106.69, -6.165), "Tangerang Selatan": (106.705, -6.29),
 }
 
+NO_KALI = {"Ciliwung"}  # sungai yang namanya tidak diawali "Kali"
 SIAGA_NAME = {4: "Normal", 3: "Waspada", 2: "Siaga", 1: "Awas"}
-SIAGA_COLOR = {4: "#3d3d3d", 3: "#d49a00", 2: "#d9620f", 1: "#c4242a"}  # titik di peta; normal = tinta
+SIAGA_COLOR = {4: "#12a312", 3: "#f2b01e", 2: "#ee7a4c", 1: "#d6303a"}  # titik di peta; hijau = Normal
 NO_STATUS = "#9a9c9e"  # pos tanpa ambang siaga
 BULAN = ("Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des")
 SPLINE_MAX_POINTS = 1000  # di atas ini (rentang 1 bulan/1 tahun per jam) garis TMA digambar lurus
@@ -56,6 +58,12 @@ def siaga_level(cm, limits):
         if level in limits and cm > limits[level]:
             return level
     return 4
+
+
+def river_label(station):
+    """'Kali Angke' / 'Ciliwung': sungai pos menurut hilir.json; None kalau pos tidak ada di sana."""
+    river = (HILIR.get(station) or {}).get("sungai")
+    return None if not river else river if river in NO_KALI or river.startswith("Waduk") else f"Kali {river}"
 
 
 def hilir_kecamatan(station, hilir=None):
@@ -201,7 +209,7 @@ def map_figure(rows, selected, unit="jam", horizon=None, regions=None, kecamatan
         xs, ys = _lines(feature)
         # alur hulu (dari titik pos ke sungai di DKI) putus-putus: diturunkan dari jaringan sungai OSM
         fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines",
-                                 line={"color": LEVEL if on else RIVER, "width": 2 if on else 1,
+                                 line={"color": RIVER_SELECTED if on else RIVER, "width": 2 if on else 1,
                                        "dash": "dot" if pos else "solid"}, hoverinfo="skip", showlegend=False,
                                  name=f"Hulu {pos}" if pos else f"Sungai {feature['properties']['name']}"))
 
@@ -247,6 +255,14 @@ def map_figure(rows, selected, unit="jam", horizon=None, regions=None, kecamatan
         hoverlabel={"bgcolor": "#ffffff", "font": {"family": FONT, "size": 13, "color": INK},
                     "bordercolor": GRID},
     )
+    return fig
+
+
+def blank_figure():
+    """Figur kosong tanpa sumbu, transparan: isi awal grafik sebelum datanya datang (bukan sumbu 0-4 bawaan plotly)."""
+    fig = go.Figure()
+    fig.update_layout(xaxis={"visible": False}, yaxis={"visible": False}, paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(0,0,0,0)", margin={"l": 0, "r": 0, "t": 0, "b": 0})
     return fig
 
 
@@ -355,6 +371,10 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
                                  customdata=hover, hovertemplate="%{customdata}: %{y:.1f} cm<extra></extra>",
                                  cliponaxis=False))
         x_end = fc["forecast_time"].max()
+        fig.add_shape(type="rect", xref="x", yref="paper", x0=as_of.to_pydatetime(), x1=x_end.to_pydatetime(),
+                      y0=0, y1=1, fillcolor="rgba(29,95,191,0.04)", line={"width": 0}, layer="below")
+        fig.add_annotation(x=x_end.to_pydatetime(), xref="x", yref="paper", y=1, text="Prakiraan", showarrow=False,
+                           xanchor="right", yanchor="top", xshift=-24, yshift=-10, font={"size": 14, "color": MUTED})
         fig.add_shape(type="line", xref="x", yref="paper", x0=as_of.to_pydatetime(), x1=as_of.to_pydatetime(),
                       y0=0, y1=1, line={"color": "#cfd3d8", "width": 1, "dash": "dot"}, layer="below")
         fig.add_annotation(x=as_of.to_pydatetime(), xref="x", yref="paper", y=0, text="Sekarang",
@@ -376,7 +396,7 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
         margin={"l": 44, "r": 108 if marks else 16, "t": 12, "b": 28}, hovermode="x unified",
         font={"family": FONT, "size": 13, "color": MUTED}, plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
-        yaxis={"gridcolor": "#f0f1f3", "zeroline": False, "showline": False, "nticks": 5,
+        yaxis={"gridcolor": "#f0f1f3", "zeroline": False, "showline": False, "nticks": 5, "title": {"text": "cm"},
                **({"range": [bottom, top]} if len(actual) else {})},
         hoverlabel={"bgcolor": "#ffffff", "font": {"family": FONT, "size": 13, "color": INK},
                     "bordercolor": GRID},
