@@ -207,6 +207,37 @@ river data has gaps (unnamed or disconnected segments), so check the rivers on t
 map after a rebuild. Kecamatan outside DKI (Depok, Bogor, Tangerang) are not covered.
 The station dots come from `config/dashboard.yaml`, so rebuild after moving one.
 
+The PDF report also says *when* each downstream kecamatan should get ready. The
+build stores, per station, the distance along the river to every downstream
+kecamatan (`kecamatan_km` in `hilir.json`): the shortest path over the OSM
+waterways in the station's river corridor (the river before it is clipped to
+DKI, so meanders that leave DKI don't break it) to the first node within 300 m of
+the kecamatan. Disconnected OSM segments are bridged with a straight line at the
+nearest gap (Krukut 34 m; Angke's lower reach ~2 km, logged as a warning), which
+shortens the distance. Katulampa lies outside the map, so its distances are
+Katulampa → Depok along the Ciliwung (42.4 km, `ruas_km`) plus Depok's.
+
+Distance becomes time through one wave speed. Katulampa → Depok is the only pair
+of stations on the same river, so `make travel-time` measures its lag from the
+hourly levels. Each event is Katulampa above Siaga 3, and spells less than 24 h
+apart are merged. The script pairs the upstream peak with the downstream peak in
+the next 10 h, and also times when each station passes half of its rise. Across
+82 events from Jan 2021 to Oct 2026, the median lag is 4 h for both measures
+(IQR 3–4), and the cross-correlation of hourly rises also peaks at 4 h. 42.4 km
+in 4 h gives ~10.6 km/h, set under `laporan.tempuh` in `config/dashboard.yaml`
+together with the SOP lead times (prepare ~2 h before the flood at Siaga 2,
+evacuate ~1 h before at Siaga 1). The report adds that time to the hour the
+station reaches its worst status, rounds it down, and lists each kecamatan with
+its kelurahan, distance, travel time, arrival and deadline. The speed comes
+from the steep upper reach, so arrivals in the flatter city reaches are
+probably early. The numbers have not been checked against the downstream gates
+(PA Manggarai, Karet, Pulo Gadung), which are not in the data yet.
+
+```
+make travel-time                         # Katulampa -> Depok, artifacts/travel_time_events.csv
+make travel-time ARGS="--threshold 150"  # only events above Siaga 2
+```
+
 Inspect which model is currently "best" and load its weights without running
 a forecast (useful for debugging):
 

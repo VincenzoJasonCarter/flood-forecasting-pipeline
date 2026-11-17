@@ -75,6 +75,9 @@ button { font: inherit; }
 .brand { font-weight: 500; font-size: 15px; white-space: nowrap; }
 .scope { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .scope::before { content: "/"; margin-right: 10px; color: var(--control); }
+/* make dashboard-demo: penanda data palsu, warna Awas supaya tidak dikira pantauan nyata */
+.demo-tag { margin-left: 10px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;
+  letter-spacing: .02em; white-space: nowrap; color: #fff; background: #d6303a; }
 .bar-right { display: flex; align-items: center; gap: 12px; }
 .stamp { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .btn {

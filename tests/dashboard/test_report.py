@@ -4,8 +4,8 @@ import pandas as pd
 from pypdf import PdfReader
 
 from dashboard.figures import station_rows
-from dashboard.report import (assess, attention, build_report, next_limit, report_content, selection_note,
-                              snapshot_as_of, stale_note, trend_cm, upstream)
+from dashboard.report import (assess, attention, build_report, downstream_times, next_limit, report_content,
+                              selection_note, snapshot_as_of, stale_note, trend_cm, upstream, wave_speed_kmh)
 
 AS_OF = pd.Timestamp("2026-01-01 12:00")
 COORDS = {"A": {"label": "Alfa", "aliran": "Tengah", "siaga": {3: 20, 2: 25, 1: 30}},
@@ -102,10 +102,11 @@ def test_report_pdf_carries_the_finding_actions_and_sources_with_markup_escaped(
     pdf = build_report(_snap(), _rows(), [1, 3], AS_OF + pd.Timedelta(minutes=10), "Alfa naik <segera>", CFG,
                        sources="Sumber & lisensi")
     text = _pdf_text(pdf)
-    for expected in ("Alfa naik <segera>", "Waspada <siap>.", "Sumber & lisensi", "2 dari 3 pos",
-                     "Halaman 1 dari"):
+    for expected in ("Alfa naik <segera>", "Waspada <siap>.", "Sumber & lisensi", "Halaman 1 dari"):
         assert expected in text
-    assert text.index("Perlu tindakan") < text.index("Semua pos")
+    # naskah: ringkasan, satu bagian per sungai, lalu lampiran
+    assert (text.index("1. Ringkasan") < text.index("2. Alfa") < text.index("Lampiran A. Status")
+            < text.index("Lampiran B. Dasar"))
 
 
 def test_report_lists_the_downstream_areas_of_stations_needing_attention():
@@ -115,7 +116,9 @@ def test_report_lists_the_downstream_areas_of_stations_needing_attention():
     a = {x["row"]["station"]: x for x in assess(_rows(), _snap(), [1, 3], cfg)}
     assert a["A"]["hilir"] == {"Kec Hulu": ["Kel Satu"], "Kec Hilir": ["Kel Dua"]} and a["B"]["hilir"] == {}
     text = _pdf_text(build_report(_snap(), _rows(), [1, 3], AS_OF + pd.Timedelta(minutes=10), "x", cfg))
-    assert "Hilir (perkiraan): Kec Hulu, Kec Hilir" in text and "Wilayah hilir = perkiraan" in text
+    # tanpa jarak sungai: kecamatan dan kelurahan tetap terdaftar, hanya tanpa jam tiba
+    assert "Kec Hulu" in text and "Kel Dua" in text and "jarak sepanjang sungai belum tersedia" in text
+    assert "Wilayah hilir = perkiraan" in text
     assert "Wilayah hilir" not in _pdf_text(build_report(_snap(), _rows(), [1, 3], AS_OF, "x", CFG))
 
 
@@ -136,7 +139,7 @@ def test_station_without_a_current_reading_is_flagged_by_its_forecast():
     assert c["now_level"] is None and c["worst"] == 2
     assert c["reasons"] == ["Diprakirakan naik ke Siaga 2 (Siaga) pada +1 jam: 160.0 cm, TMA sekarang tidak terbaca."]
     assert c["action"] == "Siagakan."
-    assert "TMA tidak terbaca" in _pdf_text(build_report(snap, rows, [1, 3], AS_OF, "x", CFG))
+    assert "TMA Pos Gama tidak terbaca" in _pdf_text(build_report(snap, rows, [1, 3], AS_OF, "x", CFG))
 
 
 def test_attention_is_worst_first_and_skips_quiet_stations():
@@ -174,3 +177,59 @@ def test_status_banner_is_an_alert_with_the_worst_status_per_horizon_or_safe_whe
     safe = status_banner(calm, [1, 3], "jam", "x")
     assert safe["kind"] == "safe" and safe["head"].startswith("Aman")
     assert id_text("dari 110.0 cm, 19:00") == "dari 110,0 cm, 19:00"
+
+
+TEMPUH = {"ruas": ["A", "B"], "lag_jam": 4,
+          "tenggat": {2: {"tindakan": "persiapan", "jam": 2}, 1: {"tindakan": "evakuasi", "jam": 1}}}
+HILIR_KM = {"A": {"sungai": "Kali A", "sampai": "laut",
+                  "kelurahan": [["Kel Satu", "Kec Hulu", "Kota"], ["Kel Dua", "Kec Hilir", "Kota"],
+                                ["Kel Tiga", "Kec Hilir", "Kota"]],
+                  "kecamatan_km": {"Kec Hulu": 5.0, "Kec Hilir": 25.0}}}
+
+
+def test_wave_speed_is_the_calibration_reach_over_its_lag():
+    assert wave_speed_kmh(TEMPUH, {"A": {"B": 40.0}}) == 10.0
+    assert wave_speed_kmh(TEMPUH, {}) is None and wave_speed_kmh(None, {"A": {"B": 40.0}}) is None
+
+
+def test_downstream_times_are_nearest_first_rounded_down_with_the_sop_deadline():
+    event_at = AS_OF + pd.Timedelta(hours=1)
+    info = {**HILIR_KM["A"], "kecamatan_km": {"Kec Hilir": 25.0, "Kec Hulu": 5.0, "Tak Terjangkau": None}}
+    rows = downstream_times(info, 10.0, 2, event_at, AS_OF, TEMPUH["tenggat"])
+    assert [r["kecamatan"] for r in rows] == ["Kec Hulu", "Kec Hilir"]
+    hulu, hilir = rows
+    assert hulu["kelurahan"] == ["Kel Satu"] and hilir["kelurahan"] == ["Kel Dua", "Kel Tiga"]
+    assert hulu["jam"] == 0.5 and hulu["tiba"] == event_at  # 0,5 jam dibulatkan ke bawah
+    assert hilir["tiba"] == event_at + pd.Timedelta(hours=2)  # 2,5 jam -> 2
+    assert hulu["tenggat"] == {"tindakan": "persiapan", "at": event_at - pd.Timedelta(hours=2), "now": True}
+    assert hilir["tenggat"]["at"] == AS_OF + pd.Timedelta(hours=1) and not hilir["tenggat"]["now"]
+    # Siaga 3 tanpa tenggat; tanpa jam kejadian (harian) tanpa jam tiba; tanpa kecepatan tanpa baris
+    assert downstream_times(info, 10.0, 3, event_at, AS_OF, TEMPUH["tenggat"])[0]["tenggat"] is None
+    assert downstream_times(info, 10.0, 2, None, AS_OF, TEMPUH["tenggat"])[0]["tiba"] is None
+    assert downstream_times(info, None, 2, event_at, AS_OF, TEMPUH["tenggat"]) == []
+
+
+def test_assess_propagates_the_worst_status_hour_downstream():
+    cfg = {**CFG, "hilir": HILIR_KM, "kmh": 10.0, "tempuh": TEMPUH}
+    a = {x["row"]["station"]: x for x in assess(_rows(), _snap(), [1, 3], cfg)}
+    assert a["A"]["event_step"] == 1 and a["A"]["event_at"] == AS_OF + pd.Timedelta(hours=1)  # Siaga 3 pada +1
+    assert [t["kecamatan"] for t in a["A"]["tempuh"]] == ["Kec Hulu", "Kec Hilir"]
+    assert a["A"]["tempuh"][0]["tenggat"] is None  # Siaga 3: SOP tanpa tenggat
+    assert a["B"]["tempuh"] == []
+
+
+def test_report_pdf_has_the_travel_time_table_per_kecamatan():
+    forecast = _forecast()
+    forecast.loc[forecast["station"] == "A", "predicted_value_cm"] = 27.0  # Siaga 2 dari +1
+    snap = {**_snap(), "forecast": forecast}
+    rows = station_rows(_levels(), forecast, COORDS, rise_cm=10.0)
+    cfg = {**CFG, "hilir": HILIR_KM, "kmh": 10.0, "tempuh": TEMPUH}
+    text = _pdf_text(build_report(snap, rows, [1, 3], AS_OF, "x", cfg))
+    flat = " ".join(text.split())
+    assert "Status diprakirakan naik ke Siaga 2 pada +1 jam, pukul 13:00" in flat
+    assert "Perkiraan waktu tiba gelombang" in flat and "Tiba gelombang dari Alfa" in flat  # linimasa + legenda
+    assert "Kel Dua, Kel Tiga" in flat and "25,0 km · ~2 jam" in flat and "tiba 15:00" in flat
+    assert "persiapan segera" in flat and "persiapan 13:00" in flat  # Kec Hulu 13:00-2 sudah lewat; Kec Hilir 15:00-2
+    assert "Tenggat persiapan: segera di Kec Hulu; paling lambat pukul 13:00 di Kec Hilir" in flat
+    assert "Waktu tempuh = perkiraan" in flat
+    assert "Perkiraan waktu tiba gelombang" not in _pdf_text(build_report(snap, rows, [1, 3], AS_OF, "x", CFG))

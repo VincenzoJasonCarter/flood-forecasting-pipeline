@@ -5,13 +5,65 @@ snapshot yang sama dengan yang sedang ditampilkan; `report_content` menyusun isi
 menggambarnya. Ambang dan teks tindakan dari `laporan:` di config/dashboard.yaml.
 """
 
+import math
+
 import pandas as pd
 
 from .figures import BULAN, SIAGA_NAME, hilir_kecamatan, rain_totals, station_rain
-from .overview import status_banner
+from .overview import num_id, status_banner
 from .pdf import render
+from .report_sections import build as build_sections
 
 STALE_STEPS = 2  # data lebih tua dari sekian langkah dianggap basi
+
+
+def wave_speed_kmh(tempuh, ruas_km):
+    """Kecepatan rambat gelombang (km/jam): jarak sungai ruas kalibrasi (hilir.json `ruas_km`) / lag puncaknya
+    (`laporan.tempuh` di config); None kalau salah satunya tidak ada."""
+    if not tempuh:
+        return None
+    up, down = tempuh["ruas"]
+    km = (ruas_km.get(up) or {}).get(down)
+    return km / tempuh["lag_jam"] if km else None
+
+
+def _event_step(row, now_level, worst, worst_h):
+    """Langkah dari as_of saat kondisi terparah pos terjadi: sekarang kalau status sekarang yang terparah, jam
+    pertama status terparah prakiraan, atau jam puncak prakiraan kalau pos tetap Normal tapi naik."""
+    if now_level is not None and now_level < 4 and (worst is None or now_level <= worst):
+        return 0
+    if worst is not None and worst < 4:
+        return worst_h
+    return row["peak_h"] if row["rising"] and row["peak_h"] is not None else 0
+
+
+def downstream_times(info, kmh, severest, event_at, as_of, tenggat):
+    """Satu baris per kecamatan hilir, terdekat dulu: kelurahannya, jarak, waktu tempuh, jam tiba dan tenggat.
+
+    `info` = entri hilir.json pos; `event_at` = jam kondisi terparah di pos (None: tanpa jam, misalnya
+    granularity harian). Jam tiba = event_at + waktu tempuh, dibulatkan ke bawah ke jam penuh (lebih awal =
+    lebih aman). Tenggat = jam tiba - `tenggat[severest].jam`, "segera" kalau sudah lewat as_of. [] tanpa jarak
+    atau kecepatan.
+    """
+    km_by_kec = (info or {}).get("kecamatan_km") or {}
+    if not kmh or not km_by_kec:
+        return []
+    kelurahan = hilir_kecamatan(None, {None: info})
+    kota = {kec: k for _, kec, k in info.get("kelurahan", [])}
+    lead = (tenggat or {}).get(severest)
+    out = []
+    for kec, km in km_by_kec.items():
+        if km is None:
+            continue
+        hours = km / kmh
+        arrive = event_at + pd.Timedelta(hours=math.floor(hours)) if event_at is not None else None
+        due = None
+        if arrive is not None and lead:
+            at = arrive - pd.Timedelta(hours=lead["jam"])
+            due = {"tindakan": lead["tindakan"], "at": at, "now": at <= as_of}
+        out.append({"kecamatan": kec, "kelurahan": kelurahan.get(kec, []), "kota": kota.get(kec), "km": km, "jam": hours,
+                    "tiba": arrive, "tenggat": due})
+    return sorted(out, key=lambda x: x["km"])
 
 
 def trend_cm(levels, station, steps):
@@ -73,6 +125,8 @@ def assess(rows, snap, horizons, cfg):
     unit, rise_cm = cfg["unit"], cfg["rise_cm"]
     cells = (snap["model"] or {}).get("rain_cells") or {}
     ups = upstream(rows)
+    as_of = snapshot_as_of(snap)
+    tenggat = (cfg.get("tempuh") or {}).get("tenggat")
     out = []
     for r in rows:
         now_level = r["status_by_h"].get(0)
@@ -108,9 +162,14 @@ def assess(rows, snap, horizons, cfg):
 
         severest = min([s for s in (now_level, worst) if s is not None], default=None)
         action = cfg["tindakan"][severest] if severest is not None and severest < 4 else cfg["tindakan"]["pantau"]
+        step = _event_step(r, now_level, worst, worst_h)
+        event_at = as_of + pd.Timedelta(hours=step) if unit == "jam" and as_of is not None else None
         out.append({"row": r, "now_level": now_level, "worst": worst, "worst_h": worst_h, "trend": trend,
                     "rain_mm": rain_mm, "next": nxt, "reasons": reasons, "action": action if reasons else None,
-                    "hilir": hilir_kecamatan(r["station"], cfg.get("hilir", {}))})
+                    "hilir": hilir_kecamatan(r["station"], cfg.get("hilir", {})), "event_step": step,
+                    "event_at": event_at,
+                    "tempuh": downstream_times(cfg.get("hilir", {}).get(r["station"]), cfg.get("kmh"), severest,
+                                               event_at, as_of, tenggat)})
     return out
 
 
@@ -167,7 +226,16 @@ def _model_line(snap):
     return ", ".join(sorted(forecast["model"].unique())).upper() if not forecast.empty else "–"
 
 
-def _notes(snap, rows, now, as_of, cfg):
+def tempuh_basis(cfg, rows):
+    """'10,6 km/jam (Katulampa -> Depok: 42,4 km dalam ~4 jam)' dari config dan jarak ruas kalibrasi."""
+    up, down = cfg["tempuh"]["ruas"]
+    label = {r["station"]: r["label"] for r in rows}
+    km = cfg["kmh"] * cfg["tempuh"]["lag_jam"]
+    return (f"{num_id(cfg['kmh'])} km/jam ({label.get(up, up)} → {label.get(down, down)}: {num_id(km)} km "
+            f"dalam ~{cfg['tempuh']['lag_jam']:g} jam)")
+
+
+def _notes(snap, rows, now, as_of, cfg, assessments):
     """Hal yang membatasi kepercayaan pada laporan ini; yang paling penting (data basi) dulu."""
     unit, notes = cfg["unit"], []
     stale = stale_note(now, as_of, unit)
@@ -186,6 +254,11 @@ def _notes(snap, rows, now, as_of, cfg):
         notes.append("Wilayah hilir = perkiraan: kelurahan di dekat alur sungai pos menurut OpenStreetMap, bukan "
                      "daftar resmi BPBD. Wilayah yang benar-benar tergenang bergantung pada debit, hujan lokal dan "
                      "pintu air.")
+    if cfg.get("kmh") and any(a["tempuh"] for a in assessments):
+        notes.append(f"Waktu tempuh = perkiraan: jarak sepanjang sungai di OpenStreetMap dibagi kecepatan rambat "
+                     f"{tempuh_basis(cfg, rows)}. Kecepatan itu dari ruas hulu yang curam; di ruas kota yang landai "
+                     "gelombang cenderung lebih lambat, jadi jam tiba cenderung lebih awal dari kenyataan. Selisih "
+                     "antarkejadian sekitar 1 jam. Belum divalidasi dengan TMA pintu air hilir.")
     notes.append(f"Model prakiraan: {_model_line(snap)}. Prakiraan punya galat; perlakukan angka per pos sebagai "
                  "perkiraan, bukan kepastian.")
     notes.append("Tindakan diringkas dari Pedoman Pengendalian Banjir BPBD DKI Jakarta (2020). Keputusan operasional "
@@ -223,8 +296,17 @@ def report_content(snap, rows, horizons, now, finding, cfg, sources=""):
             f"dibuat {_stamp(now)} WIB"]
     if horizons:
         meta.append(f"prakiraan sampai +{horizons[-1]} {unit}")
+    if cfg.get("demo"):  # dashboard.demo: data palsu, ditandai di judul dan keterangan
+        meta.insert(0, cfg["demo"].upper())
     return {
-        "title": "Laporan pantauan banjir", "stamp": _stamp(as_of if as_of is not None else now), "meta": meta,
+        "title": "Laporan Pantauan dan Prakiraan Banjir DKI Jakarta" + (" (DEMO)" if cfg.get("demo") else ""),
+        "pantau": cfg["tindakan"]["pantau"],
+        "cover": {"number": f"LPB-{(as_of if as_of is not None else now):%Y%m%d-%H%M}",
+                  "kepada": (cfg.get("sampul") or {}).get("kepada"),
+                  "disusun_oleh": (cfg.get("sampul") or {}).get("disusun_oleh"),
+                  "data": f"{_stamp(as_of)} WIB" if as_of is not None else "Data belum ada",
+                  "made": f"{_stamp(now)} WIB", "demo": cfg.get("demo"),
+                  "gaya": (cfg.get("sampul") or {}).get("gaya", "formal")}, "stamp": _stamp(as_of if as_of is not None else now), "meta": meta,
         "severest": min((s for r in rows for s in r["status_by_h"].values()), default=None),
         "span": f"sampai +{horizons[-1]} {unit}" if horizons else "sekarang",
         "attention_title": "Perlu tindakan" if any(min(a["row"]["status_by_h"].values(), default=4) < 4
@@ -232,7 +314,10 @@ def report_content(snap, rows, horizons, now, finding, cfg, sources=""):
         "falling": falling, "banner": status_banner(rows, horizons, unit, finding), "kpis": kpis, "rise_cm": cfg["rise_cm"],
         "finding": finding, "bullets": bullets, "attention": needed, "assessments": assessments,
         "horizons": list(horizons), "unit": unit, "trend_steps": cfg["trend_steps"],
-        "notes": _notes(snap, rows, now, as_of, cfg), "sources": sources,
+        "notes": _notes(snap, rows, now, as_of, cfg, assessments), "sources": sources,
+        "tempuh_basis": tempuh_basis(cfg, rows) if cfg.get("kmh") else None, "as_of": as_of,
+        "tenggat": (cfg.get("tempuh") or {}).get("tenggat") or {},
+        **build_sections(assessments, needed, snap, horizons, cfg, as_of),
     }
 
 

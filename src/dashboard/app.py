@@ -12,10 +12,11 @@ from dash import ALL, Dash, Input, Output, State, ctx, dcc, html, no_update
 
 from .data import (GRANULARITY, REFRESH_SECONDS, REPORT, RISE_THRESHOLD_CM, STATIONS, STEP_HOURS, UNIT, load_history,
                    load_snapshot)
-from .figures import (BULAN, HILIR, HILIR_BUFFER_M, SIAGA_NAME, blank_figure, gauge, hilir_kecamatan, map_figure,
-                      rain_totals, river_label, station_figure, station_rows)
+from .figures import (BULAN, HILIR, HILIR_BUFFER_M, HILIR_RUAS_KM, SIAGA_NAME, blank_figure, gauge, hilir_kecamatan,
+                      map_figure, rain_totals, river_label, station_figure, station_rows)
 from .overview import RAIN_NAMES, card_figure, num_id, rain_band, status_banner, worst_at, worst_ahead
-from .report import assess, attention, build_report, next_limit, selection_note, snapshot_as_of, stale_note
+from .report import (assess, attention, build_report, next_limit, selection_note, snapshot_as_of, stale_note,
+                     wave_speed_kmh)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,9 @@ NO_LIMITS = "Ambang siaga belum diisi di config/dashboard.yaml."
 NO_BQ = "Gagal membaca BigQuery, lihat log server."
 WIB = timezone(timedelta(hours=7))  # jam data API dan "diperbarui" memakai waktu Jakarta
 RAIN_STEPS = 24  # "hujan 24 jam": tabel hujan selalu per jam, juga saat granularity TMA harian
-REPORT_CFG = {**REPORT, "unit": UNIT, "rise_cm": RISE_THRESHOLD_CM, "rain_steps": RAIN_STEPS, "hilir": HILIR}
+REPORT_CFG = {**REPORT, "unit": UNIT, "rise_cm": RISE_THRESHOLD_CM, "rain_steps": RAIN_STEPS, "hilir": HILIR,
+              "kmh": wave_speed_kmh(REPORT.get("tempuh"), HILIR_RUAS_KM)}
+DEMO = None  # teks penanda data palsu di header (dashboard.demo, `make dashboard-demo`); None = data nyata
 ATTN_CARDS = 3  # kartu "perlu tindakan" di ringkasan; sisanya hanya disebut namanya
 SOURCES = ("TMA dan status siaga: sisteminformasibanjir.jakarta.go.id · Batas siaga dan tindakan: Pedoman "
            "Pengendalian Banjir BPBD DKI Jakarta (2020) · Hujan: Open-Meteo, ECMWF IFS · Batas wilayah dan "
@@ -756,7 +759,8 @@ def serve_layout():
             html.Div([
                 html.Div([html.Img(src=app.get_asset_url("mark.svg"), alt="", className="mark"),
                           html.Span("Flood Forecast", className="brand"),
-                          html.Span(f"Jakarta · {len(STATIONS)} pos TMA", className="scope")], className="brand-row"),
+                          html.Span(f"Jakarta · {len(STATIONS)} pos TMA", className="scope"),
+                          *([html.Span(DEMO, className="demo-tag")] if DEMO else [])], className="brand-row"),
                 html.Nav([dcc.Link("Ringkasan", href="/", id="nav-overview", className="nav-link"),
                           dcc.Link("Detail pos", href=DETAIL_PATH, id="nav-detail", className="nav-link")],
                          className="nav"),

@@ -32,6 +32,27 @@ laporan:
     3: Pantau peringatan dini BPBD/DSDA, pastikan personel, pompa, pintu air dan sarana penanggulangan siap dipakai.
     2: Kirim peringatan dini ke RT/RW dan warga bantaran; ~2 jam sebelum banjir dirikan tenda pengungsian, posko dan pos kesehatan, siagakan personel penyelamatan dan pompa mobile, koordinasi PLN.
     1: Himbau RT/RW evakuasi mandiri (~1 jam sebelum banjir), lakukan evakuasi dan penyelamatan warga bantaran, fungsikan tenda pengungsian dan posko.
+  # Sampul laporan PDF. gaya: formal (rata tengah, seperti sampul laporan dinas), pita (separuh atas berwarna
+  # status, judul status besar) atau peta (peta Jakarta dengan kecamatan terdampak). kepada/disusun_oleh:
+  # null = baris tidak ditampilkan.
+  sampul:
+    gaya: formal
+    kepada: Pemerintah Provinsi DKI Jakarta
+    disusun_oleh: Flood Forecast, sistem pantauan dan prakiraan banjir
+  # Waktu tempuh gelombang dari pos ke tiap kecamatan hilir (tabel di laporan) = jarak sepanjang sungai
+  # (hilir.json `kecamatan_km`, `make wilayah`) / kecepatan rambat. Kecepatan dikalibrasi dari satu-satunya
+  # pasangan pos di alur yang sama: jarak ruasnya (hilir.json `ruas_km`: Katulampa -> Depok 42,4 km) dibagi
+  # lag puncaknya (`make travel-time`, 82 kejadian Katulampa > Siaga 3, Jan 2021 - Okt 2026: median 4 jam,
+  # IQR 3-4; lag naik-50% dan korelasi silang juga 4 jam), jadi ~10,6 km/jam. Ruas itu curam; di ruas kota
+  # yang landai gelombang cenderung lebih lambat, jadi jam tiba di laporan cenderung lebih awal dari kenyataan.
+  # tenggat = berapa jam sebelum gelombang tiba tindakan harus jalan, menurut status terparah pos (SOP di
+  # atas: persiapan ~2 jam, evakuasi ~1 jam sebelum banjir). Siaga 3 dan pantau tanpa tenggat.
+  tempuh:
+    ruas: [Bendung Katulampa, Pos Depok]
+    lag_jam: 4
+    tenggat:
+      2: {tindakan: persiapan, jam: 2}
+      1: {tindakan: evakuasi, jam: 1}
 
 # Posisi pos di peta. PERKIRAAN, cukup untuk menaruh titik di peta, bukan untuk survei. API tidak
 # memberi koordinat, jadi: Katulampa = bendung di OSM; Depok = Jembatan Panus (pos pantau Ciliwung,

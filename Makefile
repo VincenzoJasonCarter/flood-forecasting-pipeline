@@ -15,7 +15,7 @@ TOP ?= 3
 # Load SIBANJIR_TOKEN (and anything else) from .env when it exists.
 ENV_FILE := $(if $(wildcard .env),--env-file ../.env,)
 
-.PHONY: help venv sync test raw-preprocess raw-preprocess-bq raw-preprocess-incremental rainfall rainfall-survey rainfall-bq rainfall-incremental rainfall-rank preprocess predict predict-bq dashboard wilayah
+.PHONY: help venv sync test raw-preprocess raw-preprocess-bq raw-preprocess-incremental rainfall rainfall-survey rainfall-bq rainfall-incremental rainfall-rank travel-time preprocess predict predict-bq dashboard dashboard-demo wilayah
 
 help:
 	@echo Targets:
@@ -30,10 +30,12 @@ help:
 	@echo   rainfall-rank      step 2: rank cells per station by lagged correlation, train period only
 	@echo   rainfall-bq        step 3: full history of the TOP=3 best cells per station to tables.rainfall_hourly
 	@echo   rainfall-incremental  re-fetch last days from max date in BigQuery, merge, rewrite table
+	@echo   travel-time        flood-wave lag Katulampa to Depok from hourly levels, to artifacts/travel_time_events.csv
 	@echo   preprocess         station_features_GRANULARITY to preprocessed_data/metadata/scalers_GRANULARITY
 	@echo   predict            run the forecast pipeline
 	@echo   predict-bq         same, and append the forecast to tables.forecast_output_GRANULARITY
 	@echo   dashboard          Dash dashboard on http://127.0.0.1:8050 reading forecast_output + station_features
+	@echo   dashboard-demo     same dashboard on FAKE data with stations in Siaga, no BigQuery, to preview the PDF report
 	@echo   wilayah            rebuild the dashboard's kecamatan, river and downstream-area files from OpenStreetMap
 	@echo GRANULARITY comes from config/raw_preprocessing.yaml or config/preprocessing.yaml,
 	@echo override per run with ARGS="--granularity daily"
@@ -76,6 +78,9 @@ rainfall-incremental:
 rainfall-rank:
 	cd src && uv run python -m rainfall.analysis $(ARGS)
 
+travel-time:
+	cd src && uv run python -m rainfall.travel_time $(ARGS)
+
 preprocess:
 	cd src && uv run python -m preprocessing $(ARGS)
 
@@ -87,6 +92,9 @@ predict-bq:
 
 dashboard:
 	cd src && uv run --group dashboard python -m dashboard $(ARGS)
+
+dashboard-demo:
+	cd src && uv run --group dashboard python -m dashboard --demo $(ARGS)
 
 # shapely hanya dipakai saat membangun data wilayah, tidak ikut grup dashboard
 wilayah:

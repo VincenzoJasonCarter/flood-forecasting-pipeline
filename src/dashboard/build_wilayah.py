@@ -6,7 +6,8 @@ Menulis empat file di src/dashboard/ (dibundel, dashboard tidak memanggil intern
     kecamatan.geojson  42 kecamatan DKI daratan (admin_level 6), disederhanakan, untuk peta
     sungai.geojson     alur sungai yang dipantau tiap pos di dalam DKI, plus alur hulu dari titik pos
                        (config/dashboard.yaml) sampai alur DKI itu (properti `pos`)
-    hilir.json         kelurahan dan kecamatan di bantaran hilir tiap pos (PERKIRAAN, lihat di bawah)
+    hilir.json         kelurahan dan kecamatan di bantaran hilir tiap pos (PERKIRAAN, lihat di bawah), plus
+                       jarak sepanjang sungai dari pos ke tiap kecamatan (`kecamatan_km`) untuk waktu tempuh
 
 Sumber: OpenStreetMap lewat Overpass API (© OpenStreetMap contributors, ODbL 1.0), jadi keempat file
 ini juga ODbL. Tidak ada data resmi pos -> wilayah terdampak yang bisa diunduh, jadi bantaran
@@ -18,7 +19,12 @@ Depok -> PA Manggarai, Krukut Hulu -> PA Karet): hilir pintu air itu diatur pint
 Pesanggrahan dan Angke sampai laut lewat Cengkareng Drain (SOP: "sampai di PA Cengkareng Drain").
 
 Hasilnya dicek ke daftar kelurahan yang disebut BPBD DKI di peringatan dini (dikutip media, REFERENSI)
-dan recall-nya dicetak. Butuh shapely (tidak dipasang di grup dashboard):
+dan recall-nya dicetak.
+
+Jarak ke kecamatan = jalur terpendek di jaringan way air OSM dari titik pos, hanya lewat ruas di koridor
+alur pos (alur yang belum dipotong batas DKI, supaya meander yang keluar-masuk DKI tidak memutus jalur),
+sampai node pertama dalam BUFFER_M dari kecamatan itu. Katulampa di luar bingkai: jaraknya = Katulampa ->
+Depok di alur Ciliwung (`ruas_km`) + jarak Depok ke kecamatan. Butuh shapely (tidak dipasang di grup dashboard):
     cd src && uv run --group dashboard --with shapely python -m dashboard.build_wilayah
 """
 
@@ -36,6 +42,7 @@ from pathlib import Path
 import requests
 from shapely.geometry import LineString, MultiPolygon, Point, box, mapping
 from shapely.ops import linemerge, polygonize, unary_union
+from shapely.prepared import prep
 
 from logging_setup import configure_logging
 from settings import load_config
@@ -72,6 +79,10 @@ POS = {"Bendung Katulampa": "Ciliwung", "Pos Depok": "Ciliwung", "Pos Krukut Hul
        "Pos Pesanggrahan": "Pesanggrahan", "Pos Angke Hulu": "Angke", "Pos Cipinang Hulu": "Cipinang",
        "Pos Sunter Hulu": "Sunter", "Waduk Pluit": "Waduk Pluit"}
 
+# Pos di luar bingkai Q_AIR: jarak ke kecamatan lewat pos hilirnya di alur yang sama (Q_HULU).
+LEWAT = {"Bendung Katulampa": "Pos Depok"}
+KORIDOR_M = 30  # ruas air OSM dalam sekian meter dari alur pos ikut graf jarak
+
 # Kelurahan yang disebut BPBD DKI dalam peringatan dini per pos, dikutip media (untuk validasi saja).
 REFERENSI = {
     "Ciliwung": ("Srengseng Sawah, Pejaten Timur, Rawajati, Balekambang, Pengadegan, Cikoko, Cawang, Kebon Baru, "
@@ -101,6 +112,10 @@ Q_AIR = """[out:json][timeout:240][bbox:-6.42,106.66,-6.08,107.0];
 (way["waterway"~"^(river|canal)$"];
  way["waterway"~"^(stream|drain|ditch)$"]["name"];
  way["natural"="water"]["name"="Waduk Pluit"];);
+out geom;"""
+
+Q_HULU = """[out:json][timeout:180][bbox:-6.66,106.76,-6.38,106.90];
+way["waterway"="river"]["name"~"^(kali |sungai )?ci ?liwung$",i];
 out geom;"""
 
 
@@ -211,6 +226,88 @@ def hulu(elements, start, target):
     return None
 
 
+def graf_air(elements, area=None):
+    """Graf TAK BERARAH node way air OSM: ({node: (lon, lat)}, {node: [(tetangga, meter)]}).
+
+    `area` = hanya ruas yang kedua ujungnya di dalamnya. Tak berarah karena arah way OSM tidak selalu searah
+    aliran; arah hilir sudah dijaga koridornya (alur pos mulai dari lintang pos ke utara).
+    """
+    area = prep(area) if area is not None else None
+    coords, edges = {}, defaultdict(list)
+    for e in elements:
+        if e["type"] != "way" or not e["tags"].get("waterway"):
+            continue
+        for a, b, pa, pb in zip(e["nodes"], e["nodes"][1:], e["geometry"], e["geometry"][1:]):
+            ca, cb = (pa["lon"], pa["lat"]), (pb["lon"], pb["lat"])
+            if area is not None and not (area.contains(Point(ca)) and area.contains(Point(cb))):
+                continue
+            coords[a], coords[b] = ca, cb
+            w = math.dist(ca, cb) / DEG
+            edges[a].append((b, w))
+            edges[b].append((a, w))
+    return coords, edges
+
+
+def sambung(coords, edges):
+    """Sambung komponen graf yang terputus lewat celah terdekat (garis lurus), seperti MST antarkomponen.
+
+    Way OSM kadang tidak berbagi node (Krukut: celah 34 m), dan potongan alur bisa terpisah dari alur utama
+    (Angke hilir). Garis lurus memendekkan jarak: waktu tempuh terbaca lebih cepat, arah yang aman untuk
+    peringatan. Mengembalikan panjang tiap jembatan (m).
+    """
+    comp = {}
+    for n in coords:
+        if n in comp:
+            continue
+        comp[n], stack = n, [n]
+        while stack:
+            for m, _ in edges[stack.pop()]:
+                if m not in comp:
+                    comp[m] = n
+                    stack.append(m)
+    groups = defaultdict(list)
+    for n, c in comp.items():
+        groups[c].append(n)
+    groups = sorted(groups.values(), key=len, reverse=True)
+    joined, rest, bridges = list(groups[0]) if groups else [], groups[1:], []
+    while rest:  # Prim: komponen terdekat ke yang sudah tersambung
+        best = min(((min((math.dist(coords[a], coords[b]), a, b) for a in joined for b in g), i)
+                    for i, g in enumerate(rest)), key=lambda x: x[0][0])
+        (d, a, b), i = best
+        edges[a].append((b, d / DEG))
+        edges[b].append((a, d / DEG))
+        bridges.append(round(d / DEG))
+        joined += rest.pop(i)
+    return bridges
+
+
+def jarak_alur(coords, edges, start):
+    """{node: meter sepanjang alur dari titik `start` (lon, lat)}, mulai dari node graf terdekat."""
+    here = Point(start)
+    s = min(coords, key=lambda n: here.distance(Point(coords[n])))
+    dist = {s: here.distance(Point(coords[s])) / DEG}
+    todo = [(dist[s], s)]
+    while todo:
+        d, n = heapq.heappop(todo)
+        if d > dist[n]:
+            continue
+        for m, w in edges[n]:
+            if d + w < dist.get(m, math.inf):
+                dist[m] = d + w
+                heapq.heappush(todo, (d + w, m))
+    return dist
+
+
+def kecamatan_km(dist, coords, kec_geoms, names):
+    """{kecamatan: km dari pos ke node alur pertama dalam BUFFER_M dari kecamatan}; None kalau tak terjangkau."""
+    out = {}
+    for name in names:
+        zone = prep(kec_geoms[name].buffer(BUFFER_M * DEG))
+        near = [d for n, d in dist.items() if zone.contains(Point(coords[n]))]
+        out[name] = round(min(near) / 1000, 1) if near else None
+    return out
+
+
 def _norm(name):
     return re.sub(r"[^a-z]", "", name.lower()).replace("ranggon", "rangon")
 
@@ -241,9 +338,10 @@ def build():
     air = overpass(Q_AIR)
     daratan = unary_union([g for *_, g in kel])
 
-    sungai = {}
+    sungai, utuh = {}, {}
     for nama, pattern in SUNGAI.items():
-        geom = alur(air, pattern).intersection(daratan)
+        utuh[nama] = alur(air, pattern)  # untuk graf jarak: meander yang keluar DKI tetap menyambung
+        geom = utuh[nama].intersection(daratan)
         cut = SAMPAI[nama][1]
         if cut is not None:
             geom = geom.intersection(box(100, -90, 120, cut))
@@ -256,7 +354,7 @@ def build():
     pluit = unary_union([LineString([(p["lon"], p["lat"]) for p in e["geometry"]]) for e in air
                          if e["tags"].get("name") == "Waduk Pluit"])
     stations = load_config("dashboard")["stations"]
-    alur_hulu, area = {}, {}
+    alur_hulu, area, koridor = {}, {}, {}
     for pos, nama in POS.items():
         if nama == "Waduk Pluit":
             area[pos] = unary_union(list(polygonize(pluit))).buffer(BUFFER_M * DEG)
@@ -274,11 +372,43 @@ def build():
         mulai = s["lat"] if line is not None else -90
         jalur = unary_union([sungai[nama], *([line] if line is not None else [])]).intersection(daratan)
         area[pos] = jalur.intersection(box(100, mulai, 120, SAMPAI[nama][1] or 0)).buffer(BUFFER_M * DEG)
+        if line is not None:
+            koridor[pos] = (unary_union([utuh[nama], line]).intersection(box(100, s["lat"] - 50 * DEG, 120,
+                                                                              SAMPAI[nama][1] or 0))
+                            .buffer(KORIDOR_M * DEG))
+
+    kec_geoms = {n: g for n, _, g in kec}
+    hilir_kel = {pos: _hilir(area[pos], kel) for pos in POS}
+    jarak, ruas = {}, {}
+    for pos in koridor:
+        names = list(dict.fromkeys(k for _, k, _ in hilir_kel[pos]))
+        coords, edges = graf_air(air, koridor[pos])
+        bridges = sambung(coords, edges)
+        if any(b > 100 for b in bridges):
+            logger.warning("%s: alur disambung lewat celah garis lurus %s m", pos, [b for b in bridges if b > 100])
+        jarak[pos] = kecamatan_km(jarak_alur(coords, edges, (stations[pos]["lon"], stations[pos]["lat"])),
+                                  coords, kec_geoms, names)
+        logger.info("%s: jarak ke kecamatan hilir %s", pos, jarak[pos])
+        if None in jarak[pos].values():
+            logger.warning("%s: alur tidak sampai ke %s", pos, [k for k, v in jarak[pos].items() if v is None])
+    for pos, via in LEWAT.items():
+        coords, edges = graf_air(overpass(Q_HULU))
+        bridges = sambung(coords, edges)
+        if any(b > 100 for b in bridges):
+            logger.warning("%s -> %s: alur disambung lewat celah garis lurus %s m", pos, via, [b for b in bridges if b > 100])
+        dist = jarak_alur(coords, edges, (stations[pos]["lon"], stations[pos]["lat"]))
+        target = Point(stations[via]["lon"], stations[via]["lat"])
+        node = min(dist, key=lambda n: target.distance(Point(coords[n])))
+        ruas[pos] = {via: round(dist[node] / 1000, 1)}
+        logger.info("%s -> %s: %.1f km di alur (node %.0f m dari titik pos)", pos, via, ruas[pos][via],
+                    target.distance(Point(coords[node])) / DEG)
+        jarak[pos] = {k: (None if jarak[via].get(k) is None else round(ruas[pos][via] + jarak[via][k], 1))
+                      for k in dict.fromkeys(k for _, k, _ in hilir_kel[pos])}
 
     pos_sungai = {nama: pos for pos, nama in POS.items()}  # pos paling hilir per sungai (Ciliwung: Depok)
     for nama, (names, _) in REFERENSI.items():
         ref = {_norm(x) for x in names.split(", ")}
-        got = {_norm(n) for n, *_ in _hilir(area[pos_sungai[nama]], kel)}
+        got = {_norm(n) for n, *_ in hilir_kel[pos_sungai[nama]]}
         logger.info("Validasi %s: %d/%d kelurahan BPBD tercakup, meleset: %s", nama, len(ref & got), len(ref),
                     ", ".join(sorted(ref - got)) or "-")
 
@@ -303,9 +433,10 @@ def build():
     hilir = {
         "sumber": "© OpenStreetMap contributors (ODbL 1.0) lewat Overpass API; diturunkan oleh "
                   "src/dashboard/build_wilayah.py, bukan daftar resmi BPBD",
-        "dibuat": date.today().isoformat(), "buffer_m": BUFFER_M,
+        "dibuat": date.today().isoformat(), "buffer_m": BUFFER_M, "ruas_km": ruas,
         "pos": {pos: {"sungai": nama, "sampai": SAMPAI.get(nama, ("waduk dan sekitarnya", None))[0],
-                      "kelurahan": _hilir(area[pos], kel)} for pos, nama in POS.items()},
+                      "kelurahan": hilir_kel[pos], **({"kecamatan_km": jarak[pos]} if pos in jarak else {})}
+                for pos, nama in POS.items()},
     }
     for name, content, indent in (("kota.geojson", {"type": "FeatureCollection", "features": kota_features}, None),
                                   ("kecamatan.geojson", {"type": "FeatureCollection", "features": kec_features}, None),

@@ -1,7 +1,12 @@
 {
  "sumber": "© OpenStreetMap contributors (ODbL 1.0) lewat Overpass API; diturunkan oleh src/dashboard/build_wilayah.py, bukan daftar resmi BPBD",
- "dibuat": "2026-11-03",
+ "dibuat": "2026-11-17",
  "buffer_m": 300,
+ "ruas_km": {
+  "Bendung Katulampa": {
+   "Pos Depok": 42.4
+  }
+ },
  "pos": {
   "Bendung Katulampa": {
    "sungai": "Ciliwung",
@@ -142,7 +147,18 @@
      "Menteng",
      "Jakarta Pusat"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Jagakarsa": 52.7,
+    "Pasar Rebo": 57.3,
+    "Pasar Minggu": 66.8,
+    "Kramat Jati": 68.3,
+    "Pancoran": 76.1,
+    "Jatinegara": 81.7,
+    "Tebet": 81.7,
+    "Matraman": 88.3,
+    "Menteng": 89.6
+   }
   },
   "Pos Depok": {
    "sungai": "Ciliwung",
@@ -283,7 +299,18 @@
      "Menteng",
      "Jakarta Pusat"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Jagakarsa": 10.3,
+    "Pasar Rebo": 14.9,
+    "Pasar Minggu": 24.4,
+    "Kramat Jati": 25.9,
+    "Pancoran": 33.7,
+    "Jatinegara": 39.3,
+    "Tebet": 39.3,
+    "Matraman": 45.9,
+    "Menteng": 47.2
+   }
   },
   "Pos Krukut Hulu": {
    "sungai": "Krukut",
@@ -399,7 +426,16 @@
      "Tanah Abang",
      "Jakarta Pusat"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Jagakarsa": 0.1,
+    "Cilandak": 1.9,
+    "Pasar Minggu": 2.4,
+    "Mampang Prapatan": 8.3,
+    "Kebayoran Baru": 9.2,
+    "Setiabudi": 15.0,
+    "Tanah Abang": 16.6
+   }
   },
   "Pos Pesanggrahan": {
    "sungai": "Pesanggrahan",
@@ -530,7 +566,16 @@
      "Penjaringan",
      "Jakarta Utara"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Cilandak": 12.8,
+    "Kebayoran Lama": 18.6,
+    "Pesanggrahan": 18.9,
+    "Kebon Jeruk": 30.7,
+    "Kembangan": 31.5,
+    "Cengkareng": 39.7,
+    "Penjaringan": 43.3
+   }
   },
   "Pos Angke Hulu": {
    "sungai": "Angke",
@@ -606,7 +651,14 @@
      "Penjaringan",
      "Jakarta Utara"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Kembangan": 12.1,
+    "Kebon Jeruk": 20.5,
+    "Cengkareng": 13.7,
+    "Grogol Petamburan": 22.1,
+    "Penjaringan": 23.5
+   }
   },
   "Pos Cipinang Hulu": {
    "sungai": "Cipinang",
@@ -722,7 +774,17 @@
      "Pulo Gadung",
      "Jakarta Timur"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Ciracas": 0.0,
+    "Pasar Rebo": 3.8,
+    "Cipayung": 11.5,
+    "Kramat Jati": 12.1,
+    "Makasar": 16.3,
+    "Jatinegara": 23.6,
+    "Duren Sawit": 29.4,
+    "Pulo Gadung": 28.8
+   }
   },
   "Pos Sunter Hulu": {
    "sungai": "Sunter",
@@ -878,7 +940,21 @@
      "Cilincing",
      "Jakarta Utara"
     ]
-   ]
+   ],
+   "kecamatan_km": {
+    "Cipayung": 0.0,
+    "Makasar": 13.1,
+    "Duren Sawit": 19.8,
+    "Jatinegara": 20.9,
+    "Pulo Gadung": 24.9,
+    "Cakung": 28.4,
+    "Cempaka Putih": 32.8,
+    "Kelapa Gading": 29.5,
+    "Kemayoran": 32.7,
+    "Tanjung Priok": 32.9,
+    "Koja": 36.2,
+    "Cilincing": 40.3
+   }
   },
   "Waduk Pluit": {
    "sungai": "Waduk Pluit",

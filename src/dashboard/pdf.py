@@ -4,23 +4,27 @@ Bahasa visualnya sama dengan dashboard: Geist (dibundel di fonts/, SIL OFL), tin
 warna hanya untuk status siaga, dan papan duga mini per pos (zona siaga, TMA sekarang, puncak prakiraan biru).
 """
 
+import math
 from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as rl_canvas
-from reportlab.platypus import (BaseDocTemplate, Flowable, Frame, HRFlowable, KeepTogether, PageTemplate, Paragraph, Spacer, Table,
-                                TableStyle)
+from reportlab.platypus import (BaseDocTemplate, Flowable, Frame, KeepTogether, PageBreak, PageTemplate, Paragraph,
+                                Spacer, Table, TableStyle)
 
-from .figures import SIAGA_NAME, gauge, river_label
-from .overview import card_figure, id_text, limit_line, num_id, rain_band
+import pandas as pd
+
+from .figures import BULAN, SIAGA_NAME, _y_frame, gauge, siaga_level
+from .overview import num_id, rain_band
+from .report_sections import join
 
 _FONT_DIR = Path(__file__).with_name("fonts")
 for _weight in ("Regular", "Medium", "Bold"):
@@ -41,7 +45,6 @@ ICON = {3: "#d99a0a", 2: "#c8541a", 1: "#b8232c", 4: "#1d4f9f"}
 RAIN_RAMP = ("#dbe6f5", "#aac4e6", "#6f9bd2", "#3f74b8", "#1f4a8c")
 ZONE = {4: "#e3e7ed", 3: "#f9ebc0", 2: "#f8d9c2", 1: "#f3c9c6"}
 
-REST_LINE = 22  # ruang untuk baris "Juga perlu perhatian" di bawah kartu
 PAGE_W, PAGE_H = A4
 MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18 * mm, 24 * mm, 22 * mm
 WIDTH = PAGE_W - 2 * MARGIN_X
@@ -66,6 +69,11 @@ S = {
     "status": _style("status", 20, 24, "Geist-Medium", spaceBefore=3, spaceAfter=2),
     "finding": _style("finding", 12, 17, "Geist-Medium"),
     "body": _style("body", 9.5, 14),
+    "body_j": _style("body_j", 9.5, 14.5, alignment=TA_JUSTIFY, spaceBefore=5),
+    "h3": _style("h3", 10.5, 14, "Geist-Bold", spaceBefore=12, spaceAfter=1, keepWithNext=1),
+    "figcap": _style("figcap", 8, 11, color=MUTED, spaceBefore=4, spaceAfter=6),
+    "tabcap": _style("tabcap", 8, 11, color=MUTED, spaceBefore=10, spaceAfter=4, keepWithNext=1),
+    "numbered": _style("numbered", 9.5, 14, leftIndent=14, bulletIndent=0, spaceBefore=4, alignment=TA_JUSTIFY),
     "bullet": _style("bullet", 9.5, 14, leftIndent=10, bulletIndent=0, spaceBefore=3),
     "name": _style("name", 11.5, 15, "Geist-Medium"),
     "chips": _style("chips", 8.5, 12, alignment=TA_RIGHT),
@@ -140,12 +148,13 @@ class GaugeBar(Flowable):
             c.roundRect(x(now) - 1.0, mid - 5.0, 2.0, 10.0, 0.8, stroke=0, fill=1)
 
 
-def _mark(c, x, y, size):
-    """Logo dashboard (assets/mark.svg): lingkaran tinta dengan dua gelombang putih; (x, y) = kiri bawah."""
+def _mark(c, x, y, size, fill=INK, wave="#ffffff"):
+    """Logo dashboard (assets/mark.svg): lingkaran tinta dengan dua gelombang putih; (x, y) = kiri bawah.
+    `fill`/`wave` dibalik untuk latar gelap (sampul pita)."""
     s = size / 24
-    c.setFillColor(colors.HexColor(INK))
+    c.setFillColor(colors.HexColor(fill))
     c.circle(x + 12 * s, y + 12 * s, 12 * s, stroke=0, fill=1)
-    c.setStrokeColor(colors.white)
+    c.setStrokeColor(colors.HexColor(wave))
     c.setLineWidth(1.8 * s)
     c.setLineCap(1)
     for dy in (0, 4.5):
@@ -170,9 +179,11 @@ def _canvas_class(doc):
             self._startPage()
 
         def save(self):
+            # halaman 1 = sampul: tanpa kepala/kaki dan tidak dihitung; nomor halaman mulai dari naskah
             for number, state in enumerate(self._states, 1):
                 self.__dict__.update(state)
-                self._chrome(number, len(self._states))
+                if number > 1:
+                    self._chrome(number - 1, len(self._states) - 1)
                 super().showPage()
             super().save()
 
@@ -367,72 +378,395 @@ def _kpi_row(doc):
     return spaced
 
 
-def _chips(a, unit):
-    r, now, worst = a["row"], a["now_level"], a["worst"]
-    head = (f'<font color="{CELL_INK[now]}">{_dot(now)} <font name="Geist-Bold">{SIAGA_NAME[now]} · Siaga {now}</font></font>'
-            if now is not None else f"{_dot(None)} {'TMA tidak terbaca' if r['limits'] else 'Tanpa ambang'}")
-    if worst is not None and worst < (now or 4):
-        head += (f'<br/><font color="{MUTED}">→</font> <font color="{CELL_INK[worst]}">{_dot(worst)} '
-                 f'<font name="Geist-Bold">Siaga {worst} · {SIAGA_NAME[worst]}</font></font>'
-                 f' <font color="{MUTED}">+{a["worst_h"]} {_t(unit)}</font>')
-    return Paragraph(head, S["chips"])
+def _clock(ts):
+    return f"{ts:%H:%M}"
 
 
-def _caption(a, unit):
-    r = a["row"]
-    text = f"<b>{_fmt(r['now'])} cm</b> sekarang" if r["now"] is not None else "TMA tidak terbaca"
-    limit = limit_line(a)
-    if limit:
-        text += f"<br/>{_t(limit)}"
-    elif a["now_level"] == 1:
-        text += "<br/>Di atas batas Siaga 1"
-    if r["peak"] is not None:
-        text += f'<br/><font color="{LEVEL}">{_fmt(r["peak"])} cm puncak +{r["peak_h"]} {_t(unit)}</font>'
-    return Paragraph(text, S["caption"])
+def _hours(h):
+    """Waktu tempuh, dibulatkan ke bawah seperti jam tibanya: '<1 jam', '~3 jam'."""
+    return "<1 jam" if h < 1 else f"~{int(h)} jam"
 
 
-def _short(text):
-    """Klausa pertama tindakan (sampai ';'); teks lengkapnya ada di dashboard dan config."""
-    head, _, rest = text.partition(";")
-    return head.strip() + (" …" if rest else "")
+def _clock_cell(ts, as_of, text=None):
+    """Jam (atau `text` berisi jam) plus tanggal kecil kalau bukan tanggal data: '01:00 18 Nov'."""
+    tag = "" if as_of is None or ts.normalize() == as_of.normalize() else f" {ts.day} {BULAN[ts.month - 1]}"
+    return (text or _clock(ts)) + (f'<font size=7 color="{MUTED}">{tag}</font>' if tag else "")
 
 
-def _item(i, a, unit, rise_cm, trend_steps):
-    """Satu pos yang perlu perhatian, ringkas: nama, angka utama dan alasan pertama di kiri; status, papan duga dan
-    tindakan di kanan; satu baris kecamatan hilir di bawahnya."""
-    r = a["row"]
-    big, line = card_figure(a, unit, rise_cm, trend_steps)
-    river = river_label(r["station"]) or (f"Aliran {r['aliran']}" if r["aliran"] else "")
-    left_w, right_w = WIDTH * 0.52, WIDTH * 0.48
-    name = Paragraph(f'<font name="Geist-Bold" size=11>{_t(r["label"])}</font>'
-                     f'<font color="{MUTED}" size=8>   #{i}{" · " + _t(river) if river else ""}</font>', S["body"])
-    figure = Paragraph(f'<font name="Geist-Bold" size=15 color="{BLUE_INK}">{_t(big)}{"" if big == "–" else " cm"}</font>'
-                       f'  <font size=8.5>{_t(line)}</font>', _style("fig", 9, 18, spaceBefore=3))
-    reasons = [Paragraph(_t(id_text(a["reasons"][0])), _style("why", 8.5, 12, spaceBefore=2))]
-    if len(a["reasons"]) > 1:
-        reasons.append(Paragraph(f"+{len(a['reasons']) - 1} alasan lain di laporan lengkap",
-                                 _style("more", 7.5, 10, color=MUTED, spaceBefore=1)))
-    action = Table([[Paragraph(f'<font name="Geist-Bold" size=7 color="{BLUE_INK}">TINDAKAN  </font>{_t(_short(a["action"]))}',
-                               _style("act", 8, 11))]], colWidths=[right_w - 12])
-    action.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(BLUE_BG)), ("ROUNDEDCORNERS", [4, 4, 4, 4]),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    right = [_chips(a, unit), Spacer(1, 3), GaugeBar(r, right_w - 12, 10), _caption(a, unit), Spacer(1, 4), action]
-    if a.get("hilir"):
-        names = list(a["hilir"])
-        shown = ", ".join(names[:3]) + (f" +{len(names) - 3} kec." if len(names) > 3 else "")
-        reasons.append(Paragraph(f"Hilir (perkiraan): {_t(shown)}", _style("hil", 7.5, 10, color=MUTED, spaceBefore=3)))
-    table = Table([[[name, figure, *reasons], right]], colWidths=[left_w, right_w])
-    table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (0, 0), 14),
-        ("LEFTPADDING", (1, 0), (1, 0), 0), ("RIGHTPADDING", (1, 0), (1, 0), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+def _nice_ticks(lo, hi, n=4):
+    """Angka bulat untuk sumbu y: 0 / 50 / 100 ..."""
+    raw = (hi - lo) / n if hi > lo else 1.0
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+    start = math.ceil(lo / step) * step
+    return [start + i * step for i in range(int((hi - start) // step) + 1)]
+
+
+def _time_ticks(t0, t1, unit):
+    """[(waktu, label)] sumbu x: jam bulat ('18:00'), tengah malam ditulis tanggalnya ('18 Nov')."""
+    if unit == "jam":
+        hours = (t1 - t0) / pd.Timedelta(hours=1)
+        every = 6 if hours > 30 else 3 if hours > 12 else 2 if hours > 7 else 1
+        stamps = pd.date_range(t0.ceil(f"{every}h"), t1, freq=f"{every}h")
+        return [(t, f"{t.day} {BULAN[t.month - 1]}" if t.hour == 0 else f"{t:%H:%M}") for t in stamps]
+    days = (t1 - t0).days
+    return [(t, f"{t.day} {BULAN[t.month - 1]}") for t in pd.date_range(t0.ceil("D"), t1, freq="2D" if days > 10 else "D")]
+
+
+def _axis_text(c, x, y, text, anchor="middle", size=6.5, color=MUTED, font="Geist-Regular"):
+    c.setFont(font, size)
+    c.setFillColor(colors.HexColor(color))
+    {"middle": c.drawCentredString, "end": c.drawRightString, "start": c.drawString}[anchor](x, y, text)
+
+
+class Hydrograph(Flowable):
+    """Satu pos: hujan per langkah (batang, atas) dan TMA (bawah) berbagi sumbu waktu.
+
+    TMA terukur = garis biru penuh dengan isian tipis; prakiraan = garis titik dari TMA terakhir ke tiap horizon,
+    penandanya berwarna status siaga pada nilai itu. Pita = zona status siaga, label batasnya di kanan. Skala y
+    per pos (dua pos tidak pernah berbagi sumbu); semua pos satu sungai memakai rentang waktu yang sama.
+    """
+
+    L, R, HEAD, RAIN, GAP, PLOT, AXIS = 34, 70, 15, 30, 12, 108, 13
+
+    def __init__(self, chart, width, t0, t1):
+        super().__init__()
+        self.ch, self.width, self.t0, self.t1 = chart, width, t0, t1
+        self.has_rain = any(v > 0 for _, v in chart["rain"])
+        self.height = self.HEAD + (self.RAIN + self.GAP if self.has_rain else 10) + self.PLOT + self.AXIS
+
+    def wrap(self, *_):
+        return self.width, self.height
+
+    def _x(self, t):
+        pw = self.width - self.L - self.R
+        return self.L + pw * ((t - self.t0) / (self.t1 - self.t0))
+
+    def draw(self):
+        c, ch = self.canv, self.ch
+        pw = self.width - self.L - self.R
+        right = self.L + pw
+        top = self.height
+        # kepala: titik status, nama pos, status sekarang dan terparah
+        y = top - 9
+        c.setFillColor(colors.HexColor(STATUS.get(ch["worst"], NO_STATUS)))
+        c.circle(self.L - 8, y + 2.6, 3, stroke=0, fill=1)
+        _axis_text(c, self.L, y, ch["label"], "start", 8.5, INK, "Geist-Bold")
+        note = f"sekarang {_status_word(ch['level'])}"
+        if ch["worst"] is not None and ch["worst"] < (ch["level"] or 4):
+            note += f", diprakirakan {_status_word(ch['worst'])}"
+        _axis_text(c, self.L + pdfmetrics.stringWidth(ch["label"], "Geist-Bold", 8.5) + 6, y, note, "start", 7.5)
+        y = top - self.HEAD
+
+        if self.has_rain:  # hujan: batang tipis, skala sendiri, angka maksimum di kiri
+            rain = [(t, v) for t, v in ch["rain"] if self.t0 <= t <= self.t1]
+            peak = max([v for _, v in rain] + [5.0])
+            base = y - self.RAIN
+            step = self._x(self.t0 + pd.Timedelta(1, "h" if ch["unit"] == "jam" else "D")) - self.L
+            bar = max(min(step * 0.7, 6), 0.8)
+            c.setFillColor(colors.HexColor(RAIN_RAMP[2]))
+            for t, v in rain:
+                if v > 0:
+                    h = (self.RAIN - 4) * v / peak
+                    c.roundRect(self._x(t) - bar / 2, base, bar, h, min(bar / 2, 1.5), stroke=0, fill=1)
+            c.setStrokeColor(colors.HexColor(RULE))
+            c.setLineWidth(0.5)
+            c.line(self.L, base, right, base)
+            _axis_text(c, self.L - 4, base + self.RAIN - 8, f"{num_id(peak, 0)} mm", "end")
+            _axis_text(c, right + 4, base + 2, "hujan/jam" if ch["unit"] == "jam" else "hujan/hari", "start")
+            y = base - self.GAP
+        else:
+            y -= 10
+
+        plot_top, plot_bot = y, y - self.PLOT
+        actual = pd.Series(dict(ch["actual"]), dtype=float)
+        fc = pd.DataFrame({"predicted_value_cm": [v for _, v in ch["forecast"]]})
+        lo, hi, marks = _y_frame(actual, fc, ch["limits"])
+        yv = lambda v: plot_bot + self.PLOT * (v - lo) / (hi - lo)  # noqa: E731
+
+        c.saveState()
+        clip = c.beginPath()
+        clip.rect(self.L, plot_bot, pw, self.PLOT)
+        c.clipPath(clip, stroke=0, fill=0)
+        cuts = sorted((cm, lvl) for lvl, cm in ch["limits"].items())
+        for i, (cm, lvl) in enumerate(cuts):  # pita zona status: dari batasnya ke batas berikut
+            upper = cuts[i + 1][0] if i + 1 < len(cuts) else hi
+            c.setFillColor(colors.HexColor(ZONE[lvl]))
+            c.rect(self.L, yv(cm), pw, yv(upper) - yv(cm), stroke=0, fill=1)
+        as_of = ch["as_of"]
+        if ch["forecast"] and as_of is not None:
+            c.setFillColor(colors.HexColor(LEVEL))
+            c.setFillAlpha(0.05)
+            c.rect(self._x(as_of), plot_bot, right - self._x(as_of), self.PLOT, stroke=0, fill=1)
+            c.setFillAlpha(1)
+        c.setStrokeColor(colors.HexColor("#e3e5e8"))
+        c.setLineWidth(0.4)
+        ticks = _nice_ticks(lo, hi)
+        for v in ticks:
+            c.line(self.L, yv(v), right, yv(v))
+        pts = [(self._x(t), yv(v)) for t, v in ch["actual"]]
+        if len(pts) > 1:
+            area = c.beginPath()
+            area.moveTo(pts[0][0], plot_bot)
+            for p in pts:
+                area.lineTo(*p)
+            area.lineTo(pts[-1][0], plot_bot)
+            area.close()
+            c.setFillColor(colors.HexColor(LEVEL))
+            c.setFillAlpha(0.10)
+            c.drawPath(area, stroke=0, fill=1)
+            c.setFillAlpha(1)
+            line = c.beginPath()
+            line.moveTo(*pts[0])
+            for p in pts[1:]:
+                line.lineTo(*p)
+            c.setStrokeColor(colors.HexColor(LEVEL))
+            c.setLineWidth(1.5)
+            c.setLineJoin(1)
+            c.setLineCap(1)
+            c.drawPath(line, stroke=1, fill=0)
+        c.restoreState()
+
+        if as_of is not None:  # garis "sekarang"; label di celah atas plot supaya tidak ditimpa data
+            c.setStrokeColor(colors.HexColor("#9aa0a6"))
+            c.setLineWidth(0.6)
+            c.line(self._x(as_of), plot_bot, self._x(as_of), plot_top + 2)
+            _axis_text(c, self._x(as_of) - 3, plot_top + 3, "Sekarang", "end")
+            if ch["forecast"]:
+                _axis_text(c, self._x(as_of) + 3, plot_top + 3, "Prakiraan →", "start")
+        fpts = [(self._x(t), yv(v), v) for t, v in ch["forecast"]]
+        if fpts:
+            start = [pts[-1]] if pts else []
+            chain = start + [(x, y) for x, y, _ in fpts]
+            c.setStrokeColor(colors.HexColor(LEVEL))
+            c.setLineWidth(1.5)
+            c.setLineCap(1)
+            c.setDash(0.1, 3)
+            for a, b in zip(chain, chain[1:]):
+                c.line(a[0], a[1], b[0], b[1])
+            c.setDash()
+            for x, y, v in fpts:
+                lvl = siaga_level(v, ch["limits"])
+                c.setFillColor(colors.white)
+                c.circle(x, y, 4.2, stroke=0, fill=1)
+                c.setFillColor(colors.HexColor(STATUS[lvl] if lvl in (1, 2, 3) else LEVEL))
+                c.circle(x, y, 3, stroke=0, fill=1)
+        # label hanya dua angka: puncak prakiraan dan TMA sekarang; yang kedua dibuang kalau bertabrakan
+        peak_box = None
+        if fpts:
+            px, py, pv = max(fpts, key=lambda p: p[2])
+            text = f"{num_id(pv)} cm"
+            w = pdfmetrics.stringWidth(text, "Geist-Medium", 7)
+            if py + 14 < plot_top:  # di atas titik; kalau mepet atas plot, di samping kanan (atau kiri di tepi)
+                lx, ly, anchor, x0 = min(px, right - w / 2), py + 6, "middle", min(px, right - w / 2) - w / 2
+            elif px + 7 + w < right:
+                lx, ly, anchor, x0 = px + 7, py - 2.5, "start", px + 7
+            else:
+                lx, ly, anchor, x0 = px - 7, py - 2.5, "end", px - 7 - w
+            _axis_text(c, lx, ly, text, anchor, 7, INK, "Geist-Medium")
+            peak_box = (x0, ly, x0 + w, ly + 7)
+        if pts:  # TMA sekarang: titik tinta di ujung garis terukur, angkanya sejajar di kiri (di atas garis yang naik)
+            c.setFillColor(colors.white)
+            c.circle(*pts[-1], 3.6, stroke=0, fill=1)
+            c.setFillColor(colors.HexColor(INK))
+            c.circle(*pts[-1], 2.4, stroke=0, fill=1)
+            text = f"{num_id(ch['actual'][-1][1])} cm"
+            w = pdfmetrics.stringWidth(text, "Geist-Medium", 7)
+            ax, ay = pts[-1][0] - 7, pts[-1][1] - 2.5
+            box = (ax - w, ay, ax, ay + 7)
+            clash = peak_box and not (box[2] + 3 < peak_box[0] or peak_box[2] + 3 < box[0]
+                                      or box[3] + 2 < peak_box[1] or peak_box[3] + 2 < box[1])
+            if not clash:
+                _axis_text(c, ax, ay, text, "end", 7, INK, "Geist-Medium")
+
+        for v in ticks:  # sumbu y kiri, batas siaga kanan
+            _axis_text(c, self.L - 4, yv(v) - 2.2, num_id(v, 0).replace("-", "−"), "end")
+        _axis_text(c, self.L - 4, plot_top + 2, "cm", "end")
+        for cm, lvl in marks:
+            if lo <= cm <= hi:
+                c.setStrokeColor(colors.HexColor(STATUS[lvl]))
+                c.setLineWidth(1.6)
+                c.line(right, yv(cm), right + 5, yv(cm))
+                _axis_text(c, right + 8, yv(cm) - 2.2, f"Siaga {lvl} · {cm:g}", "start")
+        c.setStrokeColor(colors.HexColor(RULE))
+        c.setLineWidth(0.6)
+        c.line(self.L, plot_bot, right, plot_bot)
+        for t, label in _time_ticks(self.t0, self.t1, ch["unit"]):
+            _axis_text(c, self._x(t), plot_bot - 9, label)
+
+
+class ArrivalTimeline(Flowable):
+    """Kapan gelombang tiba di tiap kecamatan: satu baris per kecamatan, satu lajur per pos sumber.
+
+    Titik = perkiraan tiba (warna = status gelombang di pos sumbernya); batang = jendela tindakan, dari tenggat
+    SOP (garis tegak) sampai tiba. Tenggat yang sudah lewat dipotong di "sekarang". Angkanya ada di tabel.
+    """
+
+    L, R, LEGEND, AXIS = 112, 14, 16, 14
+
+    def __init__(self, arr, width, unit):
+        super().__init__()
+        self.arr, self.width, self.unit = arr, width, unit
+        self.lane_h = 7 if len(arr["lanes"]) > 1 else 0
+        self.row_h = 15 + self.lane_h * (len(arr["lanes"]) - 1)
+        as_of = arr["as_of"]
+        times = [m["tiba"] for row in arr["rows"] for m in row["marks"].values() if m["tiba"] is not None]
+        self.t0 = as_of - pd.Timedelta(hours=1)
+        self.t1 = max(times + [as_of + pd.Timedelta(hours=3)]) + pd.Timedelta(hours=1)
+        self.height = self.LEGEND + self.row_h * len(arr["rows"]) + self.AXIS
+
+    def wrap(self, *_):
+        return self.width, self.height
+
+    def _x(self, t):
+        return self.L + (self.width - self.L - self.R) * ((t - self.t0) / (self.t1 - self.t0))
+
+    def draw(self):
+        c, arr = self.canv, self.arr
+        right, as_of = self.width - self.R, arr["as_of"]
+        # legenda: satu entri per pos sumber, lalu kunci batang tenggat
+        x, y = self.L, self.height - 9
+        for lane in arr["lanes"]:
+            c.setFillColor(colors.HexColor(STATUS.get(lane["level"], LEVEL)))
+            c.circle(x + 3, y + 2.4, 3, stroke=0, fill=1)
+            text = f"Tiba gelombang dari {lane['label']} ({_status_word(lane['level'])})"
+            _axis_text(c, x + 9, y, text, "start", 7)
+            x += 9 + pdfmetrics.stringWidth(text, "Geist-Regular", 7) + 14
+        if any(m["tenggat"] for row in arr["rows"] for m in row["marks"].values()):
+            c.setFillColor(colors.HexColor(NO_STATUS))
+            c.setFillAlpha(0.45)
+            c.roundRect(x, y + 0.8, 16, 3.4, 1.7, stroke=0, fill=1)
+            c.setFillAlpha(1)
+            c.setStrokeColor(colors.HexColor(NO_STATUS))
+            c.setLineWidth(1.2)
+            c.line(x, y - 1, x, y + 6)
+            _axis_text(c, x + 21, y, "tenggat SOP → tiba", "start", 7)
+
+        top = self.height - self.LEGEND
+        bottom = top - self.row_h * len(arr["rows"])
+        c.setStrokeColor(colors.HexColor("#e3e5e8"))
+        c.setLineWidth(0.4)
+        ticks = _time_ticks(self.t0, self.t1, self.unit)
+        for t, _ in ticks:
+            c.line(self._x(t), bottom, self._x(t), top)
+        c.setStrokeColor(colors.HexColor("#9aa0a6"))
+        c.setLineWidth(0.6)
+        c.line(self._x(as_of), bottom, self._x(as_of), top + 2)
+        _axis_text(c, self._x(as_of) + 3, top - 7, "Sekarang", "start")
+
+        offsets = [((len(arr["lanes"]) - 1) / 2 - j) * self.lane_h for j in range(len(arr["lanes"]))]
+        for i, row in enumerate(arr["rows"]):
+            mid = top - self.row_h * (i + 0.5)
+            _axis_text(c, 0, mid - 2.8, row["kecamatan"], "start", 8, INK)
+            c.setStrokeColor(colors.HexColor(SOFT_RULE))
+            c.setLineWidth(0.5)
+            c.line(0, top - self.row_h * (i + 1), right, top - self.row_h * (i + 1))
+            for lane, off in zip(arr["lanes"], offsets):
+                m = row["marks"].get(lane["station"])
+                if not m or m["tiba"] is None:
+                    continue
+                yy, colour = mid + off, STATUS.get(lane["level"], LEVEL)
+                xt = self._x(m["tiba"])
+                if m["tenggat"]:
+                    xd = self._x(max(m["tenggat"]["at"], as_of))
+                    c.setFillColor(colors.HexColor(colour))
+                    c.setFillAlpha(0.35)
+                    c.roundRect(xd, yy - 1.7, max(xt - xd, 0.1), 3.4, 1.7, stroke=0, fill=1)
+                    c.setFillAlpha(1)
+                    if m["tenggat"]["at"] >= as_of:
+                        c.setStrokeColor(colors.HexColor(colour))
+                        c.setLineWidth(1.2)
+                        c.line(xd, yy - 3.5, xd, yy + 3.5)
+                c.setFillColor(colors.white)
+                c.circle(xt, yy, 4.2, stroke=0, fill=1)
+                c.setFillColor(colors.HexColor(colour))
+                c.circle(xt, yy, 3, stroke=0, fill=1)
+        c.setStrokeColor(colors.HexColor(RULE))
+        c.setLineWidth(0.6)
+        c.line(self.L, bottom, right, bottom)
+        for t, label in ticks:
+            _axis_text(c, self._x(t), bottom - 9, label)
+
+
+def _arrival_table(arr):
+    """Tabel pendamping linimasa: kecamatan, kelurahan bantaran, dan per pos sumber jam tiba, tenggat, jarak."""
+    lanes, as_of = arr["lanes"], arr["as_of"]
+    lane_w = 96
+    widths = [16, 86, WIDTH - 16 - 86 - lane_w * len(lanes)] + [lane_w] * len(lanes)
+    head = [Paragraph("", S["th"]), Paragraph("Kecamatan", S["th"]), Paragraph("Kelurahan bantaran", S["th"])]
+    head += [Paragraph(f"Dari {_t(lane['label'])}", S["th_r"]) for lane in lanes]
+    data, style = [head], [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (0, -1), 0), ("RIGHTPADDING", (-1, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor(RULE)),
-    ]))
+    ]
+    for i, row in enumerate(arr["rows"], 1):
+        cells = [Paragraph(f'<font color="{MUTED}">{i}</font>', S["td"]), Paragraph(_t(row["kecamatan"]), S["td"]),
+                 Paragraph(_t(", ".join(row["kelurahan"])) or "–", _style("kel", 7.5, 10, color=MUTED))]
+        for lane in lanes:
+            m = row["marks"].get(lane["station"])
+            if not m:
+                cells.append(Paragraph("–", S["td_r"]))
+                continue
+            lines = ([_clock_cell(m["tiba"], as_of, f'<font name="Geist-Medium">tiba {_clock(m["tiba"])}</font>')]
+                     if m["tiba"] is not None else [])
+            due = m["tenggat"]
+            if due:
+                lines.append(f'<font name="Geist-Bold" color="{CELL_INK[1]}">{_t(due["tindakan"])} segera</font>'
+                             if due["now"] else f"{_t(due['tindakan'])} {_clock_cell(due['at'], as_of)}")
+            lines.append(f'<font size=7 color="{MUTED}">{num_id(m["km"])} km · {_hours(m["jam"])}</font>')
+            cells.append(Paragraph("<br/>".join(lines), S["td_r"]))
+        data.append(cells)
+        style.append(("LINEBELOW", (0, i), (-1, i), 0.5, colors.HexColor(SOFT_RULE)))
+    table = Table(data, colWidths=widths, repeatRows=1)
+    table.setStyle(TableStyle(style))
     return table
+
+
+def _section(n, s, doc, counter):
+    """Satu bagian sungai: kondisi pos, grafik TMA, wilayah terdampak (linimasa + tabel), rekomendasi tindakan."""
+    unit, horizons = doc["unit"], doc["horizons"]
+    names = join([st["label"] for st in s["stations"]])
+    out = [Paragraph(f'{n}. {_t(s["title"])}', S["h2"]),
+           Paragraph(f"Pos {_t(names)}", S["hint"]), Paragraph(f"{n}.1 Kondisi pos", S["h3"])]
+    out += [Paragraph(_t(st["text"]), S["body_j"]) for st in s["stations"]]
+    charts = [st["chart"] for st in s["stations"] if st["chart"]["actual"] or st["chart"]["forecast"]]
+    if charts:
+        starts = [ch["actual"][0][0] for ch in charts if ch["actual"]] or [ch["forecast"][0][0] for ch in charts]
+        ends = [ch["forecast"][-1][0] for ch in charts if ch["forecast"]] + [ch["actual"][-1][0] for ch in charts
+                                                                            if ch["actual"]]
+        counter["fig"] += 1
+        steps = max(len(ch["actual"]) for ch in charts)
+        span = f"{steps} {unit} terakhir" + (f" dan prakiraan sampai +{horizons[-1]} {unit}" if horizons else "")
+        out.append(KeepTogether([Spacer(1, 6), *[Hydrograph(ch, WIDTH, min(starts), max(ends)) for ch in charts],
+                                 Paragraph(f"<b>Gambar {counter['fig']}.</b> Tinggi muka air (garis biru) dan hujan "
+                                           f"di sel model (batang) Pos {_t(names)}: {span}. Garis titik = prakiraan, "
+                                           "warna penanda = status pada nilai itu; pita warna = zona status siaga.",
+                                           S["figcap"])]))
+    out.append(Paragraph(f"{n}.2 Wilayah berpotensi terdampak", S["h3"]))
+    if s["impact"]:
+        out.append(Paragraph(_t(s["impact"]), S["body_j"]))
+    if s["arrivals"]:
+        arr = s["arrivals"]
+        if unit == "jam" and arr["lanes"]:
+            counter["fig"] += 1
+            out.append(KeepTogether([Spacer(1, 6), ArrivalTimeline(arr, WIDTH, unit), Paragraph(
+                f"<b>Gambar {counter['fig']}.</b> Perkiraan waktu tiba gelombang di kecamatan hilir, yang paling "
+                "cepat terkena di atas. Batang = jendela tindakan dari tenggat SOP sampai gelombang tiba.",
+                S["figcap"])]))
+        counter["tab"] += 1
+        out += [Paragraph(f"<b>Tabel {counter['tab']}.</b> Kecamatan dan kelurahan bantaran hilir"
+                          + (", jam tiba, tenggat tindakan, dan jarak sepanjang sungai dari pos." if arr["lanes"]
+                             else " (jarak sepanjang sungai belum tersedia)."), S["tabcap"]),
+                _arrival_table(arr)]
+    else:
+        out.append(Paragraph("Belum ada data wilayah hilir untuk sungai ini.", S["body_j"]))
+    if s["actions"]:
+        out.append(Paragraph(f"{n}.3 Rekomendasi tindakan", S["h3"]))
+        out += [Paragraph(_t(item), S["numbered"], bulletText=f"{i}.") for i, item in enumerate(s["actions"], 1)]
+    return out
 
 
 def _all_stations(doc):
@@ -524,7 +858,8 @@ def _key():
 
 
 def render(doc):
-    """PDF (bytes) dari isi laporan `report.report_content`."""
+    """PDF (bytes) dari isi laporan `report.report_content`, berbentuk naskah: ringkasan, satu bagian per sungai
+    (kondisi pos dan grafiknya, wilayah terdampak dan linimasanya, rekomendasi), pos lain, lalu lampiran."""
     out = BytesIO()
     pdf = BaseDocTemplate(out, pagesize=A4, title=f"{doc['title']} · {doc['stamp']}",
                           author="Flood Forecast", subject="Pantauan banjir Jakarta")
@@ -532,36 +867,32 @@ def render(doc):
     frame = Frame(MARGIN_X, MARGIN_BOTTOM, WIDTH, PAGE_H - MARGIN_TOP - MARGIN_BOTTOM,
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
     pdf.addPageTemplates([PageTemplate(id="laporan", frames=[frame])])
-    unit = doc["unit"]
-    story = [Paragraph(_t(doc["title"]), S["h1"]), Paragraph(_t(" · ".join(doc["meta"])), S["meta"]),
-             Spacer(1, 8), _lead(doc), Spacer(1, 8), _kpi_row(doc),
-             *([Paragraph(f"Surut dalam {doc['trend_steps']} {_t(unit)} terakhir: {_t(', '.join(doc['falling']))}.", S["hint"])]
-               if doc["falling"] else []),
-             Paragraph(f"{doc['attention_title']} · {len(doc['attention'])} dari {len(doc['assessments'])} pos"
-                       if doc["attention"] else "Perlu perhatian", S["h2"]), Spacer(1, 2)]
-    if doc["attention"]:
-        # sebanyak mungkin kartu yang muat di halaman pertama (di bawah banner dan angka); sisanya hanya disebut namanya
-        room = frame._height - sum(f.wrap(WIDTH, frame._height)[1] + f.getSpaceBefore() + f.getSpaceAfter() for f in story)
-        shown = []
-        for i, a in enumerate(doc["attention"], 1):
-            card = _item(i, a, unit, doc["rise_cm"], doc["trend_steps"])
-            height = card.wrap(WIDTH, frame._height)[1]
-            more = i < len(doc["attention"])
-            if shown and height + (REST_LINE if more else 0) > room:
-                break
-            room -= height
-            shown.append(card)
-        story += [KeepTogether([card]) for card in shown]
-        rest = doc["attention"][len(shown):]
-        if rest:
-            story.append(Paragraph(f"Juga perlu perhatian: {_t(', '.join(x['row']['label'] for x in rest))}. "
-                                   "Statusnya ada di tabel Semua pos.", _style("rest", 8.5, 12, color=MUTED, spaceBefore=6)))
-    else:
-        story.append(Paragraph("Semua pos dalam batas wajar: tidak ada kenaikan status, kenaikan tajam, pos dekat batas, "
-                               "hujan lebat, atau sinyal dari hulu. Lanjutkan pemantauan rutin.", S["body"]))
+    from .pdf_cover import CoverPage  # di sini, bukan di atas: pdf_cover mengimpor token warna dari modul ini
+
+    # sampul dulu (judul, waktu data dan status sudah di sana), lalu naskah mulai dari ringkasan
+    story = [CoverPage(doc, doc["cover"]["gaya"]), PageBreak(), Paragraph("1. Ringkasan", S["h2"])]
+    story += [Paragraph(_t(p), S["body_j"]) for p in doc["summary"]]
+    story += [Spacer(1, 10), _lead(doc), Spacer(1, 8), _kpi_row(doc)]
+    n, counter = 1, {"fig": 0, "tab": 0}
+    for s in doc["sections"]:
+        n += 1
+        story += _section(n, s, doc, counter)
+    if doc["watch"]:
+        n += 1
+        story.append(Paragraph(f"{n}. Pos lain yang dipantau", S["h2"]))
+        story.append(Paragraph("Pos berikut masih Normal tetapi punya sinyal yang perlu dipantau. Tindakan: "
+                               + _t(doc["pantau"]), S["body_j"]))
+        story += [Paragraph(f"<b>{_t(w['label'])}</b> ({_t(_status_word(w['level']))}). {_t(w['text'])}", S["note"],
+                            bulletText="•") for w in doc["watch"]]
+    if not doc["sections"] and not doc["watch"]:
+        story.append(Paragraph("Semua pos dalam batas wajar: tidak ada kenaikan status, kenaikan tajam, pos dekat "
+                               "batas, hujan lebat, atau sinyal dari hulu. Lanjutkan pemantauan rutin.", S["body_j"]))
     # judul, kunci dan tabel satu blok: judul tidak tertinggal sendirian di kaki halaman
-    story += [KeepTogether([Paragraph("Semua pos", S["h2"]), Spacer(1, 4), *_key(), _all_stations(doc)]),
-              Paragraph("Catatan data dan keterbatasan", S["h2"]), Spacer(1, 4)]
-    story += [Paragraph(_t(n), S["note"], bulletText="•") for n in doc["notes"]]
+    counter["tab"] += 1
+    story += [KeepTogether([Paragraph("Lampiran A. Status semua pos", S["h2"]),
+                            Paragraph(f"<b>Tabel {counter['tab']}.</b> TMA sekarang dan prakiraan semua pos per aliran.",
+                                      S["tabcap"]), *_key(), _all_stations(doc)]),
+              Paragraph("Lampiran B. Dasar perhitungan dan keterbatasan", S["h2"]), Spacer(1, 4)]
+    story += [Paragraph(_t(note), S["note"], bulletText="•") for note in doc["notes"]]
     pdf.build(story, canvasmaker=_canvas_class(doc))
     return out.getvalue()
