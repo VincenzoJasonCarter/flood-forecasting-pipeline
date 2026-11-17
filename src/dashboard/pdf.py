@@ -31,13 +31,13 @@ pdfmetrics.registerFontFamily("Geist", normal="Geist-Regular", bold="Geist-Bold"
 # token dashboard.css
 INK, MUTED, RULE, SOFT_RULE = "#0a0a0a", "#6b6b6b", "#e6e6e6", "#f0f0f0"
 RAISED, LEVEL, NO_STATUS = "#f2f4f7", "#1d5fbf", "#9a9c9e"
-STATUS = {4: "#12a312", 3: "#f2b01e", 2: "#ee7a4c", 1: "#d6303a"}
-CELL_BG = {4: "#e5f4e5", 3: "#fdf0c4", 2: "#fde4d8", 1: "#fbdcdc"}
-CELL_INK = {4: "#0b6b0b", 3: "#7a4a00", 2: "#9a3412", 1: "#831c1e"}
+STATUS = {4: "#1d4f9f", 3: "#f2b01e", 2: "#ee7a4c", 1: "#d6303a"}
+CELL_BG = {4: "#dfe9f8", 3: "#fdf0c4", 2: "#fde4d8", 1: "#fbdcdc"}
+CELL_INK = {4: "#1d4f9f", 3: "#7a4a00", 2: "#9a3412", 1: "#831c1e"}
 BLUE_INK, BLUE_BG = "#1d4f9f", "#eef2fb"
 BANNER = {("alert", 3): ("#fff7de", "#f0dc9c"), ("alert", 2): ("#fdeee8", "#f3c3ad"), ("alert", 1): ("#fdeceb", "#f0b4b2"),
-          ("safe", 4): ("#eef7ee", "#c6e4c6")}
-ICON = {3: "#d99a0a", 2: "#c8541a", 1: "#b8232c", 4: "#12801a"}
+          ("safe", 4): ("#eef2fb", "#c9d8f1")}
+ICON = {3: "#d99a0a", 2: "#c8541a", 1: "#b8232c", 4: "#1d4f9f"}
 RAIN_RAMP = ("#dbe6f5", "#aac4e6", "#6f9bd2", "#3f74b8", "#1f4a8c")
 ZONE = {4: "#e3e7ed", 3: "#f9ebc0", 2: "#f8d9c2", 1: "#f3c9c6"}
 

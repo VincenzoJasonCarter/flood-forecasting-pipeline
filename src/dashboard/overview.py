@@ -63,7 +63,7 @@ def status_banner(rows, horizons, unit, finding):
         graded = [r for r in rows if h in r["status_by_h"]]
         worst.append({"label": "Sekarang" if h == 0 else f"+{h} {unit}", "level": level, "graded": len(graded),
                       "above": sum(r["status_by_h"][h] < 4 for r in graded)})
-    out = {"worst": worst, "worst_title": f"Status terburuk di {len(rows)} pos" + (
+    out = {"worst": worst, "worst_title": f"Prakiraan Status Terburuk diantara {len(rows)} Pos" + (
         f" · {horizons[-1]} {unit} ke depan" if horizons else "")}
     peak = worst_ahead(rows, horizons)
     now_level, now_at = worst_at(rows, 0)
@@ -100,8 +100,9 @@ def card_figure(a, unit, rise_cm, trend_steps):
     r, now, worst = a["row"], a["now_level"], a["worst"]
     if r["change"] is not None and r["rising"]:
         if worst is not None and worst < (now or 4):
-            return num_id(r["change"], sign=True), f"menuju {SIAGA_NAME[worst]} dalam {a['worst_h']} {unit}"
-        return num_id(r["change"], sign=True), f"naik ke puncak {num_id(r['peak'])} cm pada +{r['peak_h']} {unit}"
+            return (num_id(r["peak"]), f"puncak dalam +{r['peak_h']} {unit} · menuju {SIAGA_NAME[worst]} "
+                                       f"dalam {a['worst_h']} {unit}")
+        return num_id(r["peak"]), f"puncak dalam +{r['peak_h']} {unit}"
     if a["trend"] is not None and a["trend"] >= rise_cm:
         return num_id(a["trend"], sign=True), f"naik dalam {trend_steps} {unit} terakhir"
     return (num_id(r["now"]) if r["now"] is not None else "–"), "TMA sekarang"

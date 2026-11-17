@@ -40,7 +40,7 @@ REGION_LABEL_AT = {  # titik label yang tidak menabrak label pos
 
 NO_KALI = {"Ciliwung"}  # sungai yang namanya tidak diawali "Kali"
 SIAGA_NAME = {4: "Normal", 3: "Waspada", 2: "Siaga", 1: "Awas"}
-SIAGA_COLOR = {4: "#12a312", 3: "#f2b01e", 2: "#ee7a4c", 1: "#d6303a"}  # titik di peta; hijau = Normal
+SIAGA_COLOR = {4: "#1d4f9f", 3: "#f2b01e", 2: "#ee7a4c", 1: "#d6303a"}  # titik di peta; biru tua = Normal
 NO_STATUS = "#9a9c9e"  # pos tanpa ambang siaga
 BULAN = ("Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des")
 SPLINE_MAX_POINTS = 1000  # di atas ini (rentang 1 bulan/1 tahun per jam) garis TMA digambar lurus

@@ -14,7 +14,7 @@ from .data import (GRANULARITY, REFRESH_SECONDS, REPORT, RISE_THRESHOLD_CM, STAT
                    load_snapshot)
 from .figures import (BULAN, HILIR, HILIR_BUFFER_M, SIAGA_NAME, blank_figure, gauge, hilir_kecamatan, map_figure,
                       rain_totals, river_label, station_figure, station_rows)
-from .overview import RAIN_NAMES, card_figure, id_text, limit_line, num_id, rain_band, status_banner, worst_at, worst_ahead
+from .overview import RAIN_NAMES, card_figure, num_id, rain_band, status_banner, worst_at, worst_ahead
 from .report import assess, attention, build_report, next_limit, selection_note, snapshot_as_of, stale_note
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ def _severity(row):
 def _data_stamp(snap, now):
     """Pil di bilah atas: titik kesegaran (hijau, kuning kalau data basi), waktu data, dan kapan dibaca."""
     as_of = snapshot_as_of(snap)
-    read = html.Span(f"Diperbarui {datetime.now(WIB):%H:%M}", className="stamp-sub")
+    read = html.Span(f"Dicek {datetime.now(WIB):%H:%M}", className="stamp-sub")
     if as_of is None:
         return [html.I(className="live stale"), html.Span("Belum ada data"), read]
     stale = stale_note(now, as_of, UNIT) is not None
@@ -207,6 +207,7 @@ def _kpi_cards(snap, rows):
                      + [html.Span(className="rain-mark", style={"left": f"{at}%"})], className="rain-bar"),
             html.Div([html.Span(n) for n in RAIN_NAMES], className="rain-names"),
             html.Div(f"Rata-rata {len(totals)} sel grid · terderas {_id(float(totals.max()))} mm", className="kc-sub"),
+            html.Div("Lebih kecil, lebih baik", className="kc-hint"),
         ], className="card kpi-card")
     else:
         rain = html.Div([html.Span("Hujan 24 jam di DAS", className="kc-label"),
@@ -223,7 +224,8 @@ def _kpi_cards(snap, rows):
                         className="kc-value"),
                html.Div(html.Span(style={"width": f"{fill}%"}), className="fill-bar"),
                html.Div([html.Span("0"), html.Span("1 = sempurna")], className="fill-names"),
-               html.Div(f"{model} · {stat} NSE saat seleksi", className="kc-sub")]
+               html.Div(f"{model} · {stat} NSE saat seleksi", className="kc-sub"),
+               html.Div("Lebih besar, lebih baik", className="kc-hint")]
     elif value is not None:
         nse = [html.Div([html.Span(_id(value, 2), className="kc-num"), html.Span(f"{metric} {stat}", className="unit")],
                         className="kc-value"),
@@ -236,29 +238,25 @@ def _kpi_cards(snap, rows):
 
 
 def _attention_card(i, a):
-    """Satu pos yang perlu perhatian: angka utama, papan duga, alasan, tindakan, tautan ke grafiknya."""
+    """Satu pos yang perlu perhatian: angka utama, papan duga, tindakan, tautan ke grafiknya.
+
+    TMA sekarang di bawah angka utama diwarnai sesuai status pos sekarang.
+    """
     r, now = a["row"], a["now_level"]
     big, line = card_figure(a, UNIT, RISE_THRESHOLD_CM, REPORT["trend_steps"])
+    peak_line = line.startswith("puncak dalam")  # angka besar = puncak prakiraan: "84,8 cm · +12 jam"
+    if peak_line:  # keterangan kecil di bawahnya: TMA sekarang (+ kelanjutan "menuju Siaga ..." kalau ada)
+        extra = line.split(" · ", 1)[1] if " · " in line else None
+        line = [html.B(f"{_id(r['now'])} cm" if r["now"] is not None else "–", className=f"ac-now s{now or 0}"),
+                " · sekarang"] + ([f" · {extra}"] if extra else [])
     river = _river(r["station"]) or (f"Aliran {r['aliran']}" if r["aliran"] else "")
-    peak = (html.Span(f"{_id(r['peak'])} cm puncak +{r['peak_h']} {UNIT}", className="g-peak-label")
-            if r["peak"] is not None else None)
-    more = a["reasons"][1:]
-    reasons = [html.P(id_text(a["reasons"][0]), className="ac-why")]
-    if more:
-        reasons.append(html.Details([html.Summary(f"Lihat {len(more)} alasan lain"),
-                                     *[html.P(id_text(m), className="ac-why") for m in more]], className="ac-more"))
     return html.Div([
         html.Div([html.Div([html.Span(f"#{i} · {river}" if river else f"#{i}", className="ac-rank"),
-                            html.H3(r["label"])]),
-                  html.Span([_dot(now), f"{SIAGA_NAME[now]} · Siaga {now}"] if now else "Tanpa ambang",
-                            className=f"pill s{now or 0}")], className="ac-head"),
-        html.Div([html.Span(big, className="ac-big"), html.Span(" cm", className="ac-unit") if big != "–" else None]),
+                            html.H3(r["label"])])], className="ac-head"),
+        html.Div([html.Span(big, className="ac-big"), html.Span(" cm", className="ac-unit") if big != "–" else None,
+                  html.Span(f" · +{r['peak_h']} {UNIT}", className="ac-when") if peak_line else None]),
         html.Div(line, className="ac-line"),
-        _gauge(r),
-        html.Div([html.Span([html.B(f"{_id(r['now'])} cm" if r["now"] is not None else "–"), " sekarang"]), peak],
-                 className="g-caption"),
-        html.Div(limit_line(a) or "", className="ac-limit"),
-        html.Div([html.Span("ALASAN", className="ac-k"), *reasons], className="ac-block"),
+        _gauge(r, show_limit=3),
         html.Div([html.Span("TINDAKAN", className="ac-k"), html.P(a["action"])], className="ac-act"),
         html.A(["Lihat grafik pos ini ", html.Span("→", className="arrow")], href="#chart-card", n_clicks=0,
                id={"type": "goto", "station": r["station"]}, className="ac-link"),
@@ -279,8 +277,9 @@ def _attention(snap, rows, horizons, now):
     title = f"{'Perlu tindakan' if acting else 'Perlu dipantau'} · {len(needed)} dari {len(rows)} pos"
     sub = ("Diurutkan dari yang paling parah." if acting else
            "Semua masih Normal, tetapi diprakirakan naik. Diurutkan dari yang paling perlu perhatian.")
-    body.append(html.Div([_attention_card(i, a) for i, a in enumerate(needed[:ATTN_CARDS], 1)], className="attn-grid"))
     body.append(html.Div(_gauge_key(), className="legend attn-legend"))
+    body.append(html.Div([_attention_card(i, a) for i, a in enumerate(needed[:ATTN_CARDS], 1)],
+                         className="attn-grid"))
     rest = needed[ATTN_CARDS:]
     if rest:
         body.append(html.P(f"Juga perlu perhatian: {', '.join(a['row']['label'] for a in rest)}. "
@@ -345,12 +344,9 @@ def _chart_stats(row, as_of):
                                         className="k-value")], className="kpi"))
     nxt = next_limit(row) if row["now"] is not None and 0 in row["status_by_h"] else None
     if nxt:
-        near = nxt[2] <= REPORT["near_limit_cm"]
-        stats.append(html.Div([html.Span(f"Jarak ke Siaga {nxt[0]} ({nxt[1]:g} cm)", className="k-label"),
-                               html.Div([f"{_id(nxt[2])} cm",
-                                         html.Span(" dekat" if near else " masih jauh",
-                                                   className="near" if near else "far")], className="k-value")],
-                              className="kpi"))
+        stats.append(html.Div([html.Span(f"Batas Siaga {nxt[0]} ({nxt[1]:g} cm)", className="k-label"),
+                               html.Div([f"{_id(nxt[2])} cm", html.Span(f" ke Siaga {nxt[0]}", className="unit")],
+                                        className="k-value")], className="kpi"))
     return stats
 
 
@@ -371,8 +367,10 @@ def _footer_line(snap):
     return [html.Span(fresh), html.Span(model), html.Span("Status mengikuti ambang Siaga 4–1 tiap pos")]
 
 
-def _gauge(row):
-    """Papan duga mini (figures.gauge): zona siaga pos, tanda TMA sekarang, garis biru ke puncak prakiraan."""
+def _gauge(row, show_limit=None):
+    """Papan duga mini (figures.gauge): zona siaga pos, tanda TMA sekarang, garis biru ke puncak prakiraan.
+
+    `show_limit` (mis. 3): tulis batas bawah siaga itu (cm) di bawah awal zonanya."""
     g = gauge(row)
     if g is None:
         return html.Div(html.Span("Ambang belum ada" if not row["limits"] else "–", className="dash"),
@@ -389,7 +387,13 @@ def _gauge(row):
     zones = html.Div([html.Span(className=f"gz z{lvl}", style={"left": f"{x0}%", "width": f"{x1 - x0}%"})
                       for lvl, x0, x1 in g["zones"]], className="g-zones")
     limits = " · ".join(f"Siaga {lvl} > {row['limits'][lvl]:g} cm" for lvl in (3, 2, 1) if lvl in row["limits"])
-    return html.Div(html.Div([zones, *marks], className="g-track"), className="gauge",
+    track = [html.Div([zones, *marks], className="g-track")]
+    start = next((x0 for lvl, x0, _ in g["zones"] if lvl == show_limit), None)
+    if start is not None and show_limit in row["limits"]:
+        track.append(html.Div(html.Span([f"Siaga {show_limit}", html.Br(), f"{row['limits'][show_limit]:g} cm"],
+                                           style={"left": f"{start}%"}),
+                              className="g-limit"))
+    return html.Div(track, className="gauge",
                     title=f"TMA {_fmt_cm(row['now'])} · {limits}")
 
 
@@ -695,9 +699,11 @@ def _overview_page():
             ], className="card matrix-card"),
         ], className="row row-a"),
         html.Section([
-            html.Div([html.Div([html.H2(chart_title or "Grafik TMA", id="st-title"), html.Div(
-                "Mengikuti pos yang dipilih di peta atau tabel. Garis penuh = terukur, titik-titik = prakiraan.",
-                className="sub")]),
+            html.Div([html.Div([html.H2(chart_title or "Grafik TMA", id="st-title"),
+                                html.Div("Mengikuti pos yang dipilih di peta atau tabel.", className="sub"),
+                                html.Div([html.Span([html.I(className="ck-line solid"), "terukur"]),
+                                          html.Span([html.I(className="ck-line dashed"), "prakiraan"])],
+                                         className="chart-key")]),
                 html.Div([dcc.RadioItems(id="range", options=[{"label": label, "value": key}
                                                               for key, (label, _) in RANGES.items()],
                                          value="3d", className="seg", inputClassName="opt-input",
