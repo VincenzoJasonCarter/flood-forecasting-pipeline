@@ -100,12 +100,12 @@ def test_pick_follows_a_real_click_only(monkeypatch):
     from types import SimpleNamespace
     row = {"type": "row", "station": "B"}
     monkeypatch.setattr(app, "ctx", SimpleNamespace(triggered_id=row, triggered=[{"value": 1}]))
-    assert app.pick(None, [1], [None]) == "B"
+    assert app.pick(None, [1]) == "B"
     monkeypatch.setattr(app, "ctx", SimpleNamespace(triggered_id=row, triggered=[{"value": 0}]))
-    assert app.pick(None, [0], [None]) is app.no_update  # baris baru disisipkan ulang, belum diklik
+    assert app.pick(None, [0]) is app.no_update  # baris baru disisipkan ulang, belum diklik
     click = {"points": [{"customdata": "A"}]}
     monkeypatch.setattr(app, "ctx", SimpleNamespace(triggered_id="map", triggered=[{"value": click}]))
-    assert app.pick(click, [], []) == "A"
+    assert app.pick(click, []) == "A"
 
 
 def test_short_range_is_cut_from_the_snapshot_without_reading_history(monkeypatch):
@@ -161,13 +161,15 @@ def test_outlook_shows_the_status_itself_and_when_it_gets_worse():
     assert app._outlook(rows["B"], [1, 3]) == (4, "Normal", "")
 
 
-def test_vertical_gauge_keeps_labels_apart_and_marks_the_overshoot():
+def test_vertical_gauge_puts_limits_in_the_bar_peak_left_now_right_and_a_legend_on_top():
     snap = _snap({"A": [100.0, 150.0], "B": [100.0, 100.0]}, {"A": {1: 155.0}, "B": {1: 100.0}})
-    gauge = app._vgauge(_rows(snap)[0])
-    tops = sorted(float(label.style["top"][:-2]) for label in gauge.children[1].children
-                  if "vg-label" in label.className and "vg-base" not in label.className)
-    assert all(b - a >= app.VG_GAP - 0.01 for a, b in zip(tops, tops[1:]))
-    assert "50,0 cm lagi" in str(gauge)
+    row = _rows(snap)[0]
+    legend, body = app._vgauge(row).children
+    left, bar, right = body.children
+    assert "Siaga 4" in str(legend) and "Siaga 1" in str(legend) and "Awas" not in str(legend)
+    assert f"{row['limits'][3]:g} cm" in str(bar) and "lagi" not in str(bar) and "Siaga" not in str(bar)
+    assert "Puncak +1 jam" in str(left) and "155,0 cm" in str(left)
+    assert "Sekarang" in str(right) and "150,0 cm" in str(right)
 
 
 def test_downstream_card_numbers_the_kecamatan_from_upstream_and_builds_the_copy_text(monkeypatch):
@@ -181,17 +183,17 @@ def test_downstream_card_numbers_the_kecamatan_from_upstream_and_builds_the_copy
     assert app._hilir_card({"station": "tidak ada", "label": "x"})[1] == ""
 
 
-def test_route_puts_the_chart_on_the_overview_and_the_board_on_the_detail_page(monkeypatch):
+def test_route_puts_the_map_on_the_overview_and_the_board_and_chart_on_the_detail_page(monkeypatch):
     snap = _snap({"A": [100.0], "B": [100.0]}, {"A": {1: 100.0}, "B": {1: 100.0}})
     monkeypatch.setattr(app, "_snapshot", lambda force=False: snap)
     monkeypatch.setattr(app, "STATIONS", COORDS)
     monkeypatch.setattr(app, "load_history", lambda *a: snap["levels"])  # halaman langsung terisi: tanpa BigQuery
     page, overview, detail = app.route("/", "")
     assert (overview, detail) == ("nav-link on", "nav-link")
-    assert "'chart'" in str(page) and "'range'" in str(page) and "'dt-list'" not in str(page)
+    assert "'map'" in str(page) and "'chart'" not in str(page) and "'dt-list'" not in str(page)
     page, overview, detail = app.route("/pos", "?nama=B")
     assert (overview, detail) == ("nav-link", "nav-link on")
-    assert "'dt-list'" in str(page) and "'chart'" not in str(page)
+    assert "'dt-list'" in str(page) and "'chart'" in str(page) and "'range'" in str(page)
 
 
 def test_detail_station_comes_from_the_query_and_falls_back_to_the_default():
@@ -206,14 +208,3 @@ def test_report_downloads_only_on_a_real_click(monkeypatch):
     assert app.download_report_brief(0) is app.no_update  # tombol baru disisipkan halaman, belum diklik
     assert app.download_report(None) is app.no_update
     assert app.download_report_brief(1) == "pdf" and app.download_report(1) == "pdf"
-
-
-def test_matrix_column_headers_switch_the_map_horizon_on_a_real_click(monkeypatch):
-    from types import SimpleNamespace
-    snap = _snap({"A": [100.0], "B": [100.0]}, {"A": {1: 100.0, 3: 100.0}, "B": {1: 100.0, 3: 100.0}})
-    head = app._matrix(_rows(snap), [1, 3], 3, "A")[0].children
-    assert [b.id["h"] for b in head[1:]] == [0, 1, 3] and head[3].className == "mx-h on"
-    monkeypatch.setattr(app, "ctx", SimpleNamespace(triggered_id={"type": "hz", "h": 1}, triggered=[{"value": 1}]))
-    assert app.pick_horizon([0, 1, 0]) == 1
-    monkeypatch.setattr(app, "ctx", SimpleNamespace(triggered_id={"type": "hz", "h": 1}, triggered=[{"value": 0}]))
-    assert app.pick_horizon([0, 0, 0]) is app.no_update

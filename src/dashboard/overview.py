@@ -96,14 +96,21 @@ def status_banner(rows, horizons, unit, finding):
 
 
 def card_figure(a, unit, rise_cm, trend_steps):
-    """(angka utama, keterangannya) kartu pos yang perlu perhatian: kenaikan prakiraan, kenaikan terakhir, atau TMA."""
+    """(angka utama, keterangannya) kartu pos yang perlu perhatian.
+
+    Selalu "puncak dalam +N jam" kalau ada prakiraan, dengan tambahan "menuju Siaga ..." dan/atau kenaikan terakhir;
+    tanpa prakiraan: kenaikan terakhir, atau TMA sekarang."""
     r, now, worst = a["row"], a["now_level"], a["worst"]
-    if r["change"] is not None and r["rising"]:
+    trend = (f"naik {num_id(a['trend'])} cm dalam {trend_steps} {unit} terakhir"
+             if a["trend"] is not None and a["trend"] >= rise_cm else None)
+    if r["peak"] is not None:
+        parts = [f"puncak dalam +{r['peak_h']} {unit}"]
         if worst is not None and worst < (now or 4):
-            return (num_id(r["peak"]), f"puncak dalam +{r['peak_h']} {unit} · menuju {SIAGA_NAME[worst]} "
-                                       f"dalam {a['worst_h']} {unit}")
-        return num_id(r["peak"]), f"puncak dalam +{r['peak_h']} {unit}"
-    if a["trend"] is not None and a["trend"] >= rise_cm:
+            parts.append(f"menuju {SIAGA_NAME[worst]} dalam {a['worst_h']} {unit}")
+        if trend:
+            parts.append(trend)
+        return num_id(r["peak"]), " · ".join(parts)
+    if trend:
         return num_id(a["trend"], sign=True), f"naik dalam {trend_steps} {unit} terakhir"
     return (num_id(r["now"]) if r["now"] is not None else "–"), "TMA sekarang"
 

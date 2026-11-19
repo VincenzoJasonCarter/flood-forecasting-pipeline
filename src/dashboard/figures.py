@@ -111,11 +111,12 @@ def station_rows(levels, forecast, coords, rise_cm=10.0):
     return rows
 
 
-def gauge(row):
+def gauge(row, at=None):
     """Papan duga mini satu pos: posisi TMA sekarang dan puncak prakiraan terhadap batas siaganya.
 
     Skala per pos, dari yang terendah (TMA, prakiraan, batas Siaga 3) sampai yang tertinggi (TMA,
     prakiraan, batas Siaga 1), jadi semua batas selalu terlihat dan jarak ke bahaya terbaca jujur.
+    `at` = TMA (cm) yang ditandai sebagai "now" (mis. prakiraan di horizon terpilih); skalanya tetap sama.
     Return {"zones": [(status, x0, x1)], "now": x, "peak": x} dalam persen lebar; None tanpa ambang atau angka.
     """
     limits = row["limits"]
@@ -132,7 +133,8 @@ def gauge(row):
 
     starts = [(4, 0.0)] + [(lvl, pct(cm)) for lvl, cm in cuts]
     zones = [(lvl, x0, starts[i + 1][1] if i + 1 < len(starts) else 100.0) for i, (lvl, x0) in enumerate(starts)]
-    return {"zones": zones, "now": pct(row["now"]) if row["now"] is not None else None,
+    mark = row["now"] if at is None else at
+    return {"zones": zones, "now": pct(mark) if mark is not None else None,
             "peak": pct(row["peak"]) if row["peak"] is not None else None}
 
 
@@ -383,9 +385,9 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
                            font={"size": 13, "color": MUTED})
 
     for cm, lvl in marks:
-        fig.add_shape(type="line", xref="paper", yref="y", x0=1.0, x1=1.025, y0=cm, y1=cm,
+        fig.add_shape(type="line", xref="paper", yref="y", x0=1.0, x1=1.012, y0=cm, y1=cm,
                       line={"color": SIAGA_COLOR[lvl], "width": 3})
-        fig.add_annotation(xref="paper", yref="y", x=1.03, y=cm, text=f"Siaga {lvl} · {cm:g}", showarrow=False,
+        fig.add_annotation(xref="paper", yref="y", x=1.0, xshift=20, y=cm, text=f"Siaga {lvl} · {cm:g} cm", showarrow=False,
                            xanchor="left", yanchor="middle", font={"size": 12, "color": MUTED})
 
     if len(actual):
@@ -394,7 +396,7 @@ def station_figure(levels, forecast, station, unit="jam", limits=None):
                          showgrid=False, showline=False, zeroline=False, tickangle=0)
 
     fig.update_layout(
-        margin={"l": 44, "r": 108 if marks else 16, "t": 12, "b": 28}, hovermode="x unified",
+        margin={"l": 44, "r": 136 if marks else 16, "t": 12, "b": 28}, hovermode="x unified",
         font={"family": FONT, "size": 13, "color": MUTED}, plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
         yaxis={"gridcolor": "#f0f1f3", "zeroline": False, "showline": False, "nticks": 5, "title": {"text": "cm"},
