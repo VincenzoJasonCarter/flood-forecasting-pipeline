@@ -1,0 +1,10 @@
+# Dependensi dashboard untuk Vercel (tanpa torch/prophet). Dev lokal tetap pakai pyproject.toml + uv.
+dash>=4.5.0
+reportlab>=5.1.0
+shapely>=2.0
+pandas>=2.0
+numpy>=1.24
+pyyaml>=6.0
+requests>=2.31
+google-cloud-bigquery[pandas]>=3.11
+db-dtypes>=1.2

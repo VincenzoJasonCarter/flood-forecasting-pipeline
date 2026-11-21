@@ -1,0 +1,12 @@
+.venv
+.git
+notebooks_training
+docs
+tests
+deploy
+artifacts
+__pycache__
+*.pyc
+uv.lock
+Dockerfile
+Makefile

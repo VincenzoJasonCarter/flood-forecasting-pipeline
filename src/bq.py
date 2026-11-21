@@ -1,6 +1,8 @@
 """Shared BigQuery helpers: client factory, query runner, timestamp normalisation."""
 
+import json
 import logging
+import os
 
 from google.cloud import bigquery
 
@@ -21,6 +23,14 @@ def authenticate():
 
 
 def make_client(project, location):
+    # Vercel tidak punya ADC: service-account JSON dikirim lewat env GCP_SERVICE_ACCOUNT_JSON.
+    raw = os.environ.get("GCP_SERVICE_ACCOUNT_JSON", "").strip()
+    if raw:
+        from google.oauth2 import service_account
+
+        credentials = service_account.Credentials.from_service_account_info(
+            json.loads(raw), scopes=["https://www.googleapis.com/auth/bigquery"])
+        return bigquery.Client(project=project, location=location, credentials=credentials)
     return bigquery.Client(project=project, location=location)
 
 
