@@ -1,8 +1,11 @@
 """Pick the best model (`model_selection`) and load its trained weights from BigQuery.
 
 - Prophet        -> satu model per stasiun (horizon tidak relevan).
-- LSTM/GRU/TFT   -> satu model PyTorch per (stasiun, horizon), dengan jumlah
-                    fitur input per stasiun dari metadata (fitur hujan per DAS).
+- LSTM/GRU       -> satu model PyTorch per (stasiun, horizon) (strategi direct).
+- TFT            -> satu model PyTorch MIMO per stasiun yang memprediksi semua
+                    HORIZONS sekaligus; baris bobotnya punya horizon = NULL.
+                    Bobot direct lama (horizon terisi) tetap bisa dimuat.
+  Jumlah fitur input per stasiun diambil dari metadata (fitur hujan per DAS).
 - Akhiran "_norain" (mis. "lstm_norain") = varian ablation tanpa fitur hujan.
 """
 
@@ -10,12 +13,13 @@ import io
 import logging
 import pickle
 
+import pandas as pd
 import torch
 
 from bq import run_query, scalar_param
 
-from .architectures import DEVICE, TORCH_ARCHITECTURES
-from .config import MODEL_SELECTION_TABLE, weights_table
+from .architectures import DEVICE, TORCH_ARCHITECTURES, HorizonOutput
+from .config import HORIZONS, MODEL_SELECTION_TABLE, weights_table
 from .data import load_metadata
 from .features import feature_cols_for, split_model_name
 
@@ -63,11 +67,31 @@ def load_torch_models(client, model_name, station=None, horizon=None):
 
     models = {}
     for _, row in rows.iterrows():
-        n_features = len(feature_cols_for(metadata, row["station"], use_rain))
-        model = build_model(n_features).to(DEVICE)
-        model.load_state_dict(torch.load(io.BytesIO(row["weights"]), map_location=DEVICE))
+        station = row["station"]
+        n_features = len(feature_cols_for(metadata, station, use_rain))
+        mimo = pd.isna(row["horizon"])   # NULL = satu model MIMO untuk semua HORIZONS
+        model = build_model(n_features, n_outputs=len(HORIZONS) if mimo else 1).to(DEVICE)
+        try:
+            model.load_state_dict(torch.load(io.BytesIO(row["weights"]), map_location=DEVICE))
+        except RuntimeError as exc:
+            if not mimo:
+                raise
+            raise RuntimeError(
+                f"Bobot MIMO {model_name} ({station}) tidak cocok dengan HORIZONS={HORIZONS} "
+                f"di config/prediction.yaml; horizon saat training harus sama (dan urutannya)."
+            ) from exc
         model.eval()
-        models.setdefault(row["station"], {})[int(row["horizon"])] = model
+
+        by_horizon = models.setdefault(station, {})
+        if mimo:
+            for j, h in enumerate(HORIZONS):
+                if horizon is None or h == horizon:
+                    by_horizon[h] = HorizonOutput(model, j).eval()
+        else:
+            by_horizon[int(row["horizon"])] = model
+
+    if not any(models.values()):
+        raise RuntimeError(f"Tidak ada model {model_name} untuk horizon={horizon!r} (HORIZONS={HORIZONS}).")
     return models
 
 

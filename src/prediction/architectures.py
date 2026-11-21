@@ -1,5 +1,9 @@
 """PyTorch model architectures — must stay identical to the ones used during
 training since weights are loaded via state_dict.
+
+Setiap arsitektur menerima `n_outputs`: 1 = model direct (satu horizon, output
+(B,)), >1 = model MIMO multi-horizon (output (B, n_outputs), satu kolom per
+horizon, urut sesuai HORIZONS saat training).
 """
 
 import torch
@@ -15,8 +19,13 @@ TFT_DROPOUT = 0.2
 TFT_LSTM_LAYERS = 1
 
 
+def _squeeze_single(pred):
+    """(B, 1) -> (B,) untuk model direct; (B, n_outputs) dibiarkan untuk MIMO."""
+    return pred.squeeze(-1) if pred.size(-1) == 1 else pred
+
+
 class LSTMForecaster(nn.Module):
-    def __init__(self, n_features, hidden_size=128, num_layers=2, dropout=0.2):
+    def __init__(self, n_features, hidden_size=128, num_layers=2, dropout=0.2, n_outputs=1):
         super().__init__()
         self.lstm = nn.LSTM(
             input_size=n_features,
@@ -25,15 +34,15 @@ class LSTMForecaster(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
             batch_first=True,
         )
-        self.fc = nn.Linear(hidden_size, 1)
+        self.fc = nn.Linear(hidden_size, n_outputs)
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        return self.fc(out[:, -1, :]).squeeze(-1)
+        return _squeeze_single(self.fc(out[:, -1, :]))
 
 
 class GRUForecaster(nn.Module):
-    def __init__(self, n_features, hidden_size=128, num_layers=2, dropout=0.2):
+    def __init__(self, n_features, hidden_size=128, num_layers=2, dropout=0.2, n_outputs=1):
         super().__init__()
         self.gru = nn.GRU(
             input_size=n_features,
@@ -42,11 +51,11 @@ class GRUForecaster(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
             batch_first=True,
         )
-        self.fc = nn.Linear(hidden_size, 1)
+        self.fc = nn.Linear(hidden_size, n_outputs)
 
     def forward(self, x):
         out, _ = self.gru(x)
-        return self.fc(out[:, -1, :]).squeeze(-1)
+        return _squeeze_single(self.fc(out[:, -1, :]))
 
 
 class GatedLinearUnit(nn.Module):
@@ -152,10 +161,11 @@ class InterpretableMultiHeadAttention(nn.Module):
 
 
 class TFTForecaster(nn.Module):
-    """Temporal Fusion Transformer untuk direct single-step forecasting."""
+    """Temporal Fusion Transformer. Produksi: MIMO (satu model per stasiun,
+    n_outputs = len(HORIZONS)); n_outputs=1 untuk bobot direct lama."""
 
     def __init__(self, n_features, hidden_size=64, n_heads=4,
-                 dropout=0.2, lstm_layers=1):
+                 dropout=0.2, lstm_layers=1, n_outputs=1):
         super().__init__()
         self.vsn = VariableSelectionNetwork(n_features, hidden_size, dropout)
 
@@ -180,7 +190,7 @@ class TFTForecaster(nn.Module):
         self.position_wise = GatedResidualNetwork(
             hidden_size, hidden_size, hidden_size, dropout
         )
-        self.head = nn.Linear(hidden_size, 1)
+        self.head = nn.Linear(hidden_size, n_outputs)
 
     def forward(self, x, return_weights=False):
         selected, var_weights = self.vsn(x)
@@ -199,18 +209,32 @@ class TFTForecaster(nn.Module):
         )
 
         out = self.position_wise(attn_out)
-        pred = self.head(out[:, -1, :]).squeeze(-1)
+        pred = _squeeze_single(self.head(out[:, -1, :]))
 
         if return_weights:
             return pred, var_weights, attn_weights
         return pred
 
 
+class HorizonOutput(nn.Module):
+    """Satu kolom output model MIMO, supaya bisa dipakai persis seperti model
+    direct: x -> (B,) prediksi untuk satu horizon. Model dasarnya dibagi
+    (bukan disalin) antar horizon."""
+
+    def __init__(self, model, index):
+        super().__init__()
+        self.model = model
+        self.index = index
+
+    def forward(self, x):
+        return self.model(x)[:, self.index]
+
+
 TORCH_ARCHITECTURES = {
-    "lstm": lambda n_features: LSTMForecaster(n_features=n_features),
-    "gru": lambda n_features: GRUForecaster(n_features=n_features),
-    "tft": lambda n_features: TFTForecaster(
+    "lstm": lambda n_features, n_outputs=1: LSTMForecaster(n_features=n_features, n_outputs=n_outputs),
+    "gru": lambda n_features, n_outputs=1: GRUForecaster(n_features=n_features, n_outputs=n_outputs),
+    "tft": lambda n_features, n_outputs=1: TFTForecaster(
         n_features=n_features, hidden_size=TFT_HIDDEN, n_heads=TFT_HEADS,
-        dropout=TFT_DROPOUT, lstm_layers=TFT_LSTM_LAYERS,
+        dropout=TFT_DROPOUT, lstm_layers=TFT_LSTM_LAYERS, n_outputs=n_outputs,
     ),
 }
